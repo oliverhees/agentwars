@@ -113,6 +113,47 @@ DEFAULT_MENTION_RULES = (
     "antworte kurz, direkt und in der Sache."
 )
 
+
+# Gilt für jeden Agenten, unabhängig von seiner Rolle. Getrennt von den
+# Grundregeln, weil hier das *Handwerk* steht: wie ein Befund aussehen muss,
+# damit er in Plane als Ticket taugt, und woran sich Qualität misst.
+DEFAULT_STANDARDS = """\
+## Arbeitsstandards des Teams
+
+**Jeder Befund muss ticketfähig sein.** Was du vorschlägst, landet als Ticket \
+in Plane. Also formuliere es so, dass jemand es ohne Rückfrage anfassen kann:
+
+* **Titel** – ein Ergebnis, kein Thema. Nicht "Sicherheit", sondern \
+"Session-Cookie ohne Secure-Flag setzen".
+* **Warum** – was passiert, wenn es niemand tut. Für wen, wie oft, wie teuer.
+* **Fertig ist es, wenn …** – ein prüfbares Kriterium. "Besser machen" ist \
+keins; "Login lehnt Passwörter unter 12 Zeichen ab" schon.
+* **Schnitt** – lieber drei Tickets, die je an einem Tag erledigt sind, als \
+eins, an dem zwei Wochen hängen. Was größer ist, zerlegst du.
+* **Priorität** – urgent nur, wenn Daten, Geld oder Nutzer akut gefährdet \
+sind. Wenn alles dringend ist, ist nichts dringend.
+* **Abhängigkeiten** – sag ausdrücklich, was zuerst passieren muss.
+
+**Handwerk, an dem du Code misst:**
+
+* Ein Ausfall muss sichtbar sein. Ein verschluckter Fehler ist schlimmer als \
+ein lauter.
+* Änderungen brauchen einen Weg zurück: Migration mit Rückweg, Feature hinter \
+Schalter, Deploy mit Rollback.
+* Getestet wird, was weh tut, wenn es bricht – nicht, was leicht zu testen ist.
+* Fremdeingabe ist erst nach Prüfung Eingabe. Rechte werden serverseitig \
+durchgesetzt, nicht im UI versteckt.
+* Geheimnisse gehören nie in Code, Log oder Ticket. Fällt dir eins auf, ist \
+das ein Befund mit Priorität urgent.
+* Personenbezogene Daten: so wenig wie möglich, so kurz wie möglich, und mit \
+einer Antwort auf "warum dürfen wir das".
+* Ein Review kritisiert die Sache, nie die Person, und nennt zu jedem \
+Einwand eine Alternative.
+
+**Wenn du unsicher bist:** schreib die Frage als eigenes Ticket mit dem \
+Titel "Klären: …" – eine offene Frage sichtbar zu machen ist mehr wert als \
+eine erfundene Antwort."""
+
 # Startaufstellung. Ab dem ersten Start editierbar – die Datenbank gewinnt.
 # Jeder Rollenprompt sagt, was der Agent bei bestehendem Code tut UND was auf
 # der grünen Wiese – sonst steht die Hälfte des Teams bei einem neuen Projekt
@@ -293,10 +334,14 @@ Einzeleinwand schlägt drei allgemeine Zustimmungen."""
 CHAIRMAN_JSON_CONTRACT = (
     "\n\nGANZ AM ENDE deiner Antwort, nach allem anderen, ein Codeblock "
     "```json mit einem Array der umzusetzenden Aufgaben:\n"
-    '[{"name": "Kurztitel", "description": "Was, warum und wie – so '
-    'konkret, dass jemand direkt anfangen kann", '
+    '[{"name": "Titel als Ergebnis, nicht als Thema", '
+    '"description": "## Warum\\n… was passiert, wenn es niemand tut\\n\\n'
+    '## Fertig ist es, wenn\\n- prüfbares Kriterium\\n- noch eins\\n\\n'
+    '## Hinweise\\n… Abhängigkeiten, betroffene Dateien", '
     '"priority": "urgent|high|medium|low"}]\n'
-    "Maximal 12 Einträge, nach Wichtigkeit sortiert. Jeder Eintrag muss aus "
+    "Maximal 12 Einträge, nach Wichtigkeit sortiert. Halte dich an die "
+    "Arbeitsstandards: jedes Ticket an einem Tag machbar, prüfbares "
+    "Abschlusskriterium, urgent nur bei akuter Gefahr. Jeder Eintrag muss aus "
     "der Roadmap darüber folgen – erfinde nichts Neues dazu."
 )
 
@@ -331,6 +376,7 @@ def build_team() -> dict[str, AgentSpec]:
     records = settings.active_agents()
     handles = ", ".join("@" + r["id"] for r in records)
     base = settings.get("base_prompt").strip()
+    standards = settings.get("standards").strip()
     rules = settings.get("mention_rules").strip().replace("{handles}", handles)
     memory_proxy = settings.get("memory_proxy_base_url")
 
@@ -341,8 +387,8 @@ def build_team() -> dict[str, AgentSpec]:
         if provider["routed"] and memory_proxy:
             api_base = memory_proxy
         prompt = "\n\n".join(part for part in
-                             (base, record["system_prompt"].strip(), rules)
-                             if part)
+                             (base, standards, record["system_prompt"].strip(),
+                              rules) if part)
         team[record["id"]] = AgentSpec(
             id=record["id"], name=record["name"], tagline=record["tagline"],
             color=record["color"], provider=record["provider"],

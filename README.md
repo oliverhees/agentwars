@@ -25,6 +25,7 @@ Unter **`/settings`** wird das System konfiguriert, ohne die `.env` anzufassen:
 
 - **Pro Agent:** Provider (Claude Code, Anthropic, OpenAI, HostYourAI), Modell, eigener Prompt, Name, Farbe, aktiv/inaktiv, Teilnahme am Kreuzverhör, wer Chairman ist
 - **Grundregeln:** der Text, der *vor* jedem Agenten-Prompt steht – dort setzt du den Ton fürs ganze Board
+- **Arbeitsstandards:** das Handwerk, das für alle gilt – wie ein Befund aussehen muss, damit er als Plane-Ticket taugt (Titel als Ergebnis, prüfbares „Fertig ist es, wenn", Schnitt auf Tagesgröße, Priorität mit Maß), plus die Messlatte für Code, Sicherheit, Datenschutz und Reviews
 - **Lage:** zwei getrennte Texte für „bestehendes Projekt" (prüfen) und „grüne Wiese" (entwerfen). Der passende wird automatisch vor die Phasenanweisung gesetzt
 - **Phasenanweisungen** für Einzelbeiträge, Kreuzverhör und Synthese. Das JSON-Format für die Tickets hängt das System selbst an – das kannst du nicht kaputt machen
 - **@Mention-Regeln**, die Handles setzt das System selbst ein
@@ -118,7 +119,22 @@ Die Modell-Slugs sind Annahmen, bis sie jemand prüft. Stimmt einer nicht, fiel 
 
 ## Verbrauch und Kosten
 
-Die Seite **`/usage`** zeigt, wer wie viel verbrannt hat – gesamt oder je Projekt:
+Die Seite **`/usage`** zeigt, wer wie viel verbrannt hat – gesamt oder je Projekt.
+
+**Mit Projektfilter** kommen die Projektkennzahlen dazu:
+
+| Kennzahl | Bedeutung |
+|---|---|
+| Board-Zeit | aufsummierte Meeting-Dauer, plus Anzahl der Meetings |
+| Codebasis | Zeilen und Dateien beim letzten Board – und wie viel seit dem ersten dazugekommen ist |
+| Tickets erzeugt | wie viele Aufgaben aus den Meetings entstanden sind |
+| Kosten je Meeting | Schnitt über alle Durchläufe |
+
+Darunter jedes Meeting einzeln: Dauer, Codezeilen mit Veränderung zum Vorgänger, Tickets, Aufrufe, Tokens, Kosten.
+
+> „Codezeilen" ist der Umfang des Repos **zum Analysezeitpunkt**, nicht geschriebener Code – das Board liest bisher nur. Sobald die Umsetzungsphase steht, kommt „geändert" als eigene Zahl dazu.
+
+Und weiter:
 
 - Kosten als **Rechnungsposten** (API-Modelle) getrennt von **im Abo enthalten** (Claude Code). Beides in Euro, Kurs unter `/settings` → Kosten.
 - Aufschlüsselung je Agent, je Modell, je Phase und je Projekt; im Projektfilter zusätzlich je Meeting.

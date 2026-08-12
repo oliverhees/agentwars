@@ -116,6 +116,29 @@ def _rows(sql: str, params: tuple = ()) -> list[dict]:
     return [dict(r) for r in store.connect().execute(sql, params).fetchall()]
 
 
+def _projekt_kennzahlen(project_id: str) -> dict:
+    """Was dieses Projekt bisher gekostet hat – in Zeit, Umfang und Geld."""
+    zeile = _rows(
+        "SELECT COUNT(*) AS meetings,"
+        " COALESCE(SUM(CASE WHEN ended_at IS NOT NULL"
+        "   THEN ended_at - started_at ELSE 0 END), 0) AS seconds,"
+        " COALESCE(SUM(tickets), 0) AS tickets,"
+        " MIN(started_at) AS first_meeting, MAX(started_at) AS last_meeting"
+        " FROM meetings WHERE project_id = ?", (project_id,))[0]
+
+    # Umfang: der jüngste gemessene Stand und der erste, für das Wachstum.
+    stand = _rows(
+        "SELECT repo_files, repo_lines, repo_bytes, started_at FROM meetings"
+        " WHERE project_id = ? AND repo_lines > 0"
+        " ORDER BY started_at DESC", (project_id,))
+    zeile["repo_files"] = stand[0]["repo_files"] if stand else 0
+    zeile["repo_lines"] = stand[0]["repo_lines"] if stand else 0
+    zeile["repo_bytes"] = stand[0]["repo_bytes"] if stand else 0
+    zeile["lines_growth"] = (stand[0]["repo_lines"] - stand[-1]["repo_lines"]
+                             if len(stand) > 1 else 0)
+    return zeile
+
+
 def _report(project_id: str = "") -> dict:
     where = "WHERE project_id = ?" if project_id else ""
     params = (project_id,) if project_id else ()
@@ -135,14 +158,23 @@ def _report(project_id: str = "") -> dict:
     if project_id:
         je_projekt = []
         meetings = _rows(
-            "SELECT m.id, m.started_at, m.status, m.briefing,"
+            "SELECT m.id, m.started_at, m.ended_at, m.status, m.briefing,"
+            " m.repo_files, m.repo_lines, m.repo_bytes, m.tickets,"
             " COALESCE(SUM(u.input_tokens), 0) AS input_tokens,"
             " COALESCE(SUM(u.output_tokens), 0) AS output_tokens,"
+            " COUNT(u.seq) AS calls,"
             " COALESCE(SUM(CASE WHEN u.billed = 1 THEN u.cost_usd ELSE 0 END), 0) AS billed_usd,"
             " COALESCE(SUM(CASE WHEN u.billed = 0 THEN u.cost_usd ELSE 0 END), 0) AS included_usd"
             " FROM meetings m LEFT JOIN usage u ON u.meeting_id = m.id"
             " WHERE m.project_id = ? GROUP BY m.id"
             " ORDER BY m.started_at DESC LIMIT 50", (project_id,))
+        # Dauer und Wachstum gegenüber dem vorherigen Meeting
+        for i, m in enumerate(meetings):
+            m["seconds"] = max(0.0, (m["ended_at"] or 0) - m["started_at"]) \
+                if m["ended_at"] else 0.0
+            aelter = meetings[i + 1] if i + 1 < len(meetings) else None
+            m["lines_delta"] = (m["repo_lines"] - aelter["repo_lines"]
+                                if aelter and aelter["repo_lines"] else None)
     else:
         je_projekt = _rows(
             f"SELECT p.id, p.name, p.repo_full_name, {SUMS} FROM usage u"
@@ -158,6 +190,8 @@ def _report(project_id: str = "") -> dict:
         return entries
 
     gesamt = mit_euro([gesamt])[0]
+    if project_id:
+        gesamt.update(_projekt_kennzahlen(project_id))
     return {
         "total": gesamt,
         "by_agent": mit_euro(je_agent),

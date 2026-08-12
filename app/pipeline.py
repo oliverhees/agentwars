@@ -15,7 +15,8 @@ import uuid
 
 import litellm
 
-from . import claude_code, mentions, preflight, settings, tickets, usage
+from . import (claude_code, mentions, preflight, settings, store,
+               tickets, usage)
 from .bus import bus
 from .config import CHAIRMAN_JSON_CONTRACT, build_team
 
@@ -329,6 +330,9 @@ class Meeting:
                 await bus.system(
                     f"Ticket-Sync fertig: {len(done)} angelegt"
                     + (f", {len(failed)} fehlgeschlagen." if failed else "."))
+                if bus.meeting_id:
+                    await store.update_meeting(bus.meeting_id,
+                                               {"tickets": len(done)})
             await bus.phase("plane", "done")
             await bus.system("Board-Meeting beendet. Du kannst ein neues starten.")
         finally:

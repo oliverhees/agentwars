@@ -45,12 +45,18 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at       REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS meetings (
-    id         TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL REFERENCES projects(id),
-    briefing   TEXT NOT NULL DEFAULT '',
-    status     TEXT NOT NULL DEFAULT 'running',
-    started_at REAL NOT NULL,
-    ended_at   REAL
+    id          TEXT PRIMARY KEY,
+    project_id  TEXT NOT NULL REFERENCES projects(id),
+    briefing    TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'running',
+    started_at  REAL NOT NULL,
+    ended_at    REAL,
+    -- Umfang des Repos zum Zeitpunkt der Analyse. Damit lässt sich sehen,
+    -- wie das Projekt zwischen zwei Meetings gewachsen ist.
+    repo_files  INTEGER NOT NULL DEFAULT 0,
+    repo_lines  INTEGER NOT NULL DEFAULT 0,
+    repo_bytes  INTEGER NOT NULL DEFAULT 0,
+    tickets     INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS events (
     seq        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,6 +111,10 @@ CREATE INDEX IF NOT EXISTS idx_events_meeting ON events(meeting_id, seq);
 MIGRATIONS = [
     ("projects", "plane_project_id", "TEXT NOT NULL DEFAULT ''"),
     ("projects", "coolify_app_uuid", "TEXT NOT NULL DEFAULT ''"),
+    ("meetings", "repo_files", "INTEGER NOT NULL DEFAULT 0"),
+    ("meetings", "repo_lines", "INTEGER NOT NULL DEFAULT 0"),
+    ("meetings", "repo_bytes", "INTEGER NOT NULL DEFAULT 0"),
+    ("meetings", "tickets", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 _conn: sqlite3.Connection | None = None
@@ -231,6 +241,19 @@ def _finish_meeting(meeting_id: str, status: str) -> None:
     conn.commit()
 
 
+def _update_meeting(meeting_id: str, fields: dict) -> None:
+    """Kennzahlen nachtragen: Repo-Umfang beim Einlesen, Tickets am Ende."""
+    erlaubt = {k: v for k, v in fields.items()
+               if k in ("repo_files", "repo_lines", "repo_bytes", "tickets")}
+    if not erlaubt:
+        return
+    conn = _connect()
+    zuweisung = ", ".join(f"{k} = :{k}" for k in erlaubt)
+    conn.execute(f"UPDATE meetings SET {zuweisung} WHERE id = :id",
+                 {**erlaubt, "id": meeting_id})
+    conn.commit()
+
+
 def _list_meetings(project_id: str, limit: int = 50) -> list[dict]:
     rows = _connect().execute(
         "SELECT * FROM meetings WHERE project_id = ?"
@@ -283,6 +306,10 @@ async def create_meeting(project_id: str, briefing: str) -> dict:
 
 async def finish_meeting(meeting_id: str, status: str) -> None:
     await asyncio.to_thread(_finish_meeting, meeting_id, status)
+
+
+async def update_meeting(meeting_id: str, fields: dict) -> None:
+    await asyncio.to_thread(_update_meeting, meeting_id, fields)
 
 
 async def list_meetings(project_id: str, limit: int = 50) -> list[dict]:

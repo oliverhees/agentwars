@@ -20,7 +20,8 @@ from . import store
 from .config import (DEFAULT_AGENTS, DEFAULT_BASE_PROMPT,
                      DEFAULT_MENTION_RULES, DEFAULT_MODE_EXISTING,
                      DEFAULT_MODE_GREENFIELD, DEFAULT_PHASE_CHAIRMAN,
-                     DEFAULT_PHASE_CROSS, DEFAULT_PHASE_REVIEW, env)
+                     DEFAULT_PHASE_CROSS, DEFAULT_PHASE_REVIEW,
+                     DEFAULT_STANDARDS, env)
 
 SECRET = "secret"
 
@@ -89,6 +90,11 @@ SETTINGS_SPEC = [
     _spec("base_prompt", "", "Grundregeln für alle Agenten", "Prompts",
           "textarea", DEFAULT_BASE_PROMPT,
           "Steht vor jedem Agenten-Prompt. Hier wird der Ton gesetzt."),
+    _spec("standards", "", "Arbeitsstandards für alle", "Prompts",
+          "textarea", DEFAULT_STANDARDS,
+          "Das Handwerk: wie ein Befund aussehen muss, damit er in Plane als "
+          "Ticket taugt, und woran Qualität gemessen wird. Steht nach den "
+          "Grundregeln und vor dem Rollenprompt."),
     _spec("mode_existing", "", "Lage: bestehendes Projekt", "Prompts",
           "textarea", DEFAULT_MODE_EXISTING,
           "Wird eingesetzt, wenn das Repo Code enthält – dann wird geprüft."),

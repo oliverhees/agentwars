@@ -12,7 +12,7 @@ from .bus import bus
 from .config import PHASES, PROVIDERS, build_team, env_any
 from .coolify import CoolifyError, coolify
 from .github import GitHubError, github, slugify_repo_name, valid_full_name
-from .ingest import cleanup, clone_repo, pack_project
+from .ingest import cleanup, clone_repo, measure_repo, pack_project
 from .mentions import answer_user_mention, extract_mentions
 from .pipeline import meeting
 from .plane import PlaneError, plane
@@ -471,6 +471,14 @@ async def start(req: StartRequest) -> JSONResponse:
                      f"{project['repo_full_name'] or '—'}")
 
     project_pack, repo_dir = await _ingest(project)
+    if repo_dir:
+        # Umfang festhalten: so ist später sichtbar, wie das Projekt zwischen
+        # zwei Meetings gewachsen ist.
+        masse = await asyncio.to_thread(measure_repo, repo_dir)
+        await store.update_meeting(record["id"], masse)
+        await bus.system(f"Umfang: {masse['repo_files']} Dateien, "
+                         f"{masse['repo_lines']:,} Zeilen."
+                         .replace(",", "."))
 
     async def runner() -> None:
         status = "done"

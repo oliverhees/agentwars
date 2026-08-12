@@ -101,3 +101,30 @@ def test_kaputtes_json_ergibt_leere_liste():
 
 def test_kein_json_ergibt_leere_liste():
     assert Meeting._extract_issues("Nur Prosa, kein Block.") == []
+
+
+# ---------------------------------------------------------------- Standards
+def test_arbeitsstandards_stehen_in_jedem_prompt():
+    """Ticketformat und Handwerk gelten fürs ganze Team, nicht je Rolle."""
+    for spec in build_team().values():
+        assert "Arbeitsstandards" in spec.system_prompt
+        assert "Fertig ist es, wenn" in spec.system_prompt
+
+
+def test_standards_stehen_vor_der_rolle():
+    settings.set_many({"base_prompt": "GRUND", "standards": "STANDARD"})
+    settings.save_agent("qwen", {"system_prompt": "ROLLE"})
+    prompt = build_team()["qwen"].system_prompt
+    assert prompt.index("GRUND") < prompt.index("STANDARD") < prompt.index("ROLLE")
+
+
+def test_standards_sind_editierbar():
+    settings.set_many({"standards": "NUR DAS HIER"})
+    assert "NUR DAS HIER" in build_team()["glm"].system_prompt
+    assert "Arbeitsstandards" not in build_team()["glm"].system_prompt
+
+
+def test_ticketvertrag_verlangt_pruefbares_kriterium():
+    from app.config import CHAIRMAN_JSON_CONTRACT
+    assert "Fertig ist es, wenn" in CHAIRMAN_JSON_CONTRACT
+    assert "urgent nur bei akuter Gefahr" in CHAIRMAN_JSON_CONTRACT

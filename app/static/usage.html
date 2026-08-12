@@ -93,6 +93,41 @@ const tok = n => n >= 1_000_000 ? (n/1_000_000).toFixed(2) + " M"
 
 let state = {};
 
+const dauer = sek => {
+  if (!sek) return "–";
+  const h = Math.floor(sek/3600), m = Math.round((sek%3600)/60);
+  return h ? `${h} h ${m} min` : `${m} min`;
+};
+const delta = n => n === null || n === undefined ? ""
+  : (n > 0 ? `+${tok(n)}` : n < 0 ? `−${tok(-n)}` : "±0");
+
+function projektKpis(t){
+  if (!t.meetings) return "";
+  return `<h2>Dieses Projekt</h2><div class="kpis">
+    <div class="kpi">
+      <div class="label">Board-Zeit</div>
+      <div class="value">${dauer(t.seconds)}</div>
+      <div class="sub">${nf.format(t.meetings)} Meetings</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Codebasis</div>
+      <div class="value">${tok(t.repo_lines)}</div>
+      <div class="sub">Zeilen in ${nf.format(t.repo_files||0)} Dateien${
+        t.lines_growth ? ` · ${delta(t.lines_growth)} seit dem ersten Board` : ""}</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Tickets erzeugt</div>
+      <div class="value">${nf.format(t.tickets||0)}</div>
+      <div class="sub">in Plane bzw. GitHub</div>
+    </div>
+    <div class="kpi money">
+      <div class="label">Kosten je Meeting</div>
+      <div class="value">${money((t.billed_eur||0) / Math.max(t.meetings,1))}</div>
+      <div class="sub">Schnitt aus ${nf.format(t.meetings)} Durchläufen</div>
+    </div>
+  </div>`;
+}
+
 function kpis(t){
   const gesamt = (t.input_tokens||0) + (t.output_tokens||0);
   return `<div class="kpis">
@@ -144,15 +179,23 @@ function tabelle(titel, zeilen, spalte, label){
 
 function meetingsTabelle(zeilen){
   if (!zeilen.length) return "";
-  return `<h2>Meetings</h2><div class="wrap"><table>
-    <thead><tr><th>Gestartet</th><th>Briefing</th><th>Status</th>
-      <th class="num">Tokens</th><th class="num">Kosten</th></tr></thead><tbody>
+  return `<h2>Meetings im Detail</h2><div class="wrap"><table>
+    <thead><tr>
+      <th>Gestartet</th><th>Briefing</th><th class="num">Dauer</th>
+      <th class="num">Zeilen</th><th class="num">Tickets</th>
+      <th class="num">Aufrufe</th><th class="num">Tokens</th><th class="num">Kosten</th>
+    </tr></thead><tbody>
     ${zeilen.map(m => `<tr>
-      <td class="mono">${new Date(m.started_at*1000).toLocaleString("de-DE")}</td>
-      <td>${esc((m.briefing||"").slice(0,70))}${(m.briefing||"").length > 70 ? "…" : ""}</td>
-      <td>${esc(m.status)}</td>
+      <td class="mono">${new Date(m.started_at*1000).toLocaleString("de-DE")}
+        ${m.status !== "done" ? `<span class="tag">${esc(m.status)}</span>` : ""}</td>
+      <td>${esc((m.briefing||"").slice(0,60))}${(m.briefing||"").length > 60 ? "…" : ""}</td>
+      <td class="num">${dauer(m.seconds)}</td>
+      <td class="num">${m.repo_lines ? tok(m.repo_lines) : "–"}
+        ${m.lines_delta ? `<span class="tag">${delta(m.lines_delta)}</span>` : ""}</td>
+      <td class="num">${nf.format(m.tickets||0)}</td>
+      <td class="num">${nf.format(m.calls||0)}</td>
       <td class="num">${tok((m.input_tokens||0)+(m.output_tokens||0))}</td>
-      <td class="num">${money((m.billed_usd||0) ? m.billed_usd*state.rate : m.included_usd*state.rate)}</td>
+      <td class="num">${money(((m.billed_usd||0) + (m.included_usd||0))*state.rate)}</td>
     </tr>`).join("")}
     </tbody></table></div>`;
 }
@@ -172,6 +215,7 @@ function render(d){
     (m.billed_usd||0) === 0 && (m.included_usd||0) === 0 && m.output_tokens > 0);
 
   $("main").innerHTML = kpis(d.total)
+    + (d.project_id ? projektKpis(d.total) : "")
     + tabelle("Je Agent", d.by_agent, z => farbe(z) + esc(z.agent_name || z.agent_id), "Agent")
     + tabelle("Je Modell", d.by_model, z => esc(z.model) + `<span class="tag">${esc(z.provider)}</span>`, "Modell")
     + tabelle("Je Phase", d.by_phase, z => esc(z.phase || "—"), "Phase")

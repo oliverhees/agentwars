@@ -81,6 +81,37 @@ def _score(path: str) -> int:
     return 10 + depth  # flach liegende Dateien zuerst
 
 
+def measure_repo(root: str) -> dict:
+    """Umfang des Repos: Dateien, Codezeilen, Bytes.
+
+    Gezählt wird nur, was auch ins Kontextpaket dürfte – node_modules und
+    Binärdateien würden die Zahl sonst beliebig machen. Damit lässt sich
+    zwischen zwei Meetings sehen, wie das Projekt gewachsen ist.
+    """
+    dateien = zeilen = bytes_gesamt = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for fn in filenames:
+            rel = os.path.relpath(os.path.join(dirpath, fn), root)
+            if not _wanted(rel):
+                continue
+            voll = os.path.join(dirpath, fn)
+            try:
+                groesse = os.path.getsize(voll)
+                if groesse > 2_000_000:      # generierte Riesendateien
+                    continue
+                with open(voll, "rb") as fh:
+                    inhalt = fh.read()
+            except OSError:
+                continue
+            dateien += 1
+            bytes_gesamt += groesse
+            zeilen += inhalt.count(b"\n") + (1 if inhalt and not
+                                              inhalt.endswith(b"\n") else 0)
+    return {"repo_files": dateien, "repo_lines": zeilen,
+            "repo_bytes": bytes_gesamt}
+
+
 def pack_project(root: str) -> str:
     """Baut ein Textpaket: Dateibaum + Dateiinhalte bis zum Budget."""
     budget = settings.get_int("context_char_budget")
