@@ -9,6 +9,7 @@ nicht raten musst.
 """
 import asyncio
 import difflib
+import re
 import shutil
 
 import httpx
@@ -22,8 +23,55 @@ CHECK_ON_START = env("PREFLIGHT_ON_START", "1") == "1"
 
 
 def _bare_model(model: str) -> str:
-    """'openai/kimi-k3' -> 'kimi-k3' – der Router kennt nur den nackten Slug."""
+    """'openai/kimi-k3' -> 'kimi-k3' – der Präfix ist nur für LiteLLM."""
     return model.split("/", 1)[1] if "/" in model else model
+
+
+# Der Katalog des Routers enthält alles: Sprachmodelle, Embeddings, Whisper,
+# Bildgeneratoren, Codecs. Für die Modellauswahl im Board ist davon nur ein
+# Bruchteil brauchbar – der Rest macht die Liste unlesbar.
+NICHT_CHAT = re.compile(
+    r"(embed|rerank|whisper|/tts|-tts|tts-|asr|speech|audio|codec|voice|"
+    r"kokoro|jukebox|parakeet|canary|diffusion|flux|sdxl|sd-turbo|stable-|"
+    r"cogvideo|cogview|wan2|qwen-image|-image$|/glm-image|imagereward|"
+    r"clip|siglip|radio|tokenizer|ocr|parse|docling|guard|tapas|reformer|"
+    r"segvol|/bge-|onnx|gguf|-webnn|litert)", re.IGNORECASE)
+
+
+def chat_models(catalog: list[str]) -> list[str]:
+    """Katalog auf plausible Chat-Modelle eindampfen."""
+    return [slug for slug in catalog if not NICHT_CHAT.search(slug)]
+
+
+def suggest(wanted: str, catalog: list[str], n: int = 3) -> list[str]:
+    """Passende Slugs zu einem Wunschmodell finden.
+
+    Reine Zeichenähnlichkeit (difflib) schlägt hier fehl: für 'kimi-k3' kam
+    'nvidia/DAM-3B' vor 'moonshotai/Kimi-K3'. Deshalb wird auf den
+    Modellnamen ohne Anbieter und ohne Sonderzeichen verglichen, und exakte
+    Treffer sowie Präfixe gewinnen gegen bloße Ähnlichkeit.
+    """
+    def norm(text: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", text.lower())
+
+    ziel = norm(_bare_model(wanted))
+    if not ziel:
+        return []
+    bewertet = []
+    for slug in chat_models(catalog):
+        basis = norm(slug.split("/")[-1])
+        if basis == ziel:
+            punkte = 100.0
+        elif basis.startswith(ziel) or ziel.startswith(basis):
+            # 'qwen35' trifft 'qwen3527b' – je kleiner der Rest, desto besser
+            punkte = 90 - min(abs(len(basis) - len(ziel)), 20)
+        elif ziel in basis or basis in ziel:
+            punkte = 70.0
+        else:
+            punkte = difflib.SequenceMatcher(None, ziel, basis).ratio() * 60
+        bewertet.append((punkte, slug))
+    bewertet.sort(key=lambda eintrag: (-eintrag[0], len(eintrag[1])))
+    return [slug for punkte, slug in bewertet[:n] if punkte >= 50]
 
 
 async def router_models() -> tuple[list[str], str]:
@@ -123,17 +171,18 @@ async def check(deep: bool = True) -> dict:
             model_label = _bare_model(spec.model)
         hint = ""
         if not ok and not uses_cli and catalog and spec.api_base:
-            close = difflib.get_close_matches(
-                _bare_model(spec.model), catalog, n=3, cutoff=0.4)
+            close = suggest(spec.model, catalog)
             if close:
-                hint = "Passt vielleicht: " + ", ".join(close)
+                hint = "Probier: " + ", ".join(close)
         return {"id": spec.id, "name": spec.name, "model": model_label,
                 "ok": ok, "detail": detail, "hint": hint}
 
     agents = await asyncio.gather(*[one(s) for s in team.values()])
+    brauchbar = chat_models(catalog)
     return {
         "agents": list(agents),
-        "router_models": catalog,
+        "router_models": brauchbar,
+        "router_total": len(catalog),
         "router_error": catalog_error,
         "ready": all(a["ok"] for a in agents),
     }

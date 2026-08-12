@@ -81,6 +81,7 @@ select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   line-height:1.8;margin-top:10px}
 .check .ok{color:#7FBF7F}
 .check .bad{color:#E06060}
+.check .hint{color:#E5A445}
 @media (max-width:640px){.grid2{grid-template-columns:1fr}}
 </style>
 </head>
@@ -316,7 +317,11 @@ $("load-models").onclick = async () => {
     renderModelList();
     $("models").innerHTML = data.router_error
       ? `<div class="bad">${esc(data.router_error)}</div>`
-      : `<div class="ok">${state.models.length} Modelle im Katalog – sie stehen jetzt in der Auswahl der Modellfelder.</div>`
+      : `<div class="ok">${state.models.length} Chat-Modelle von ${data.router_total}
+           Katalogeintr\u00e4gen – jetzt in der Auswahl der Modellfelder.</div>
+         <div class="hint">Achtung: Der Katalog listet auch Modelle, die nur auf
+           Anfrage laufen. Ob eins wirklich antwortet, sagt dir nur diese
+           Pr\u00fcfung – nach dem \u00c4ndern also speichern und erneut laden.</div>`
         + data.agents.map(a => `<div class="${a.ok ? "ok" : "bad"}">${a.ok ? "✓" : "✕"} ${esc(a.name)} · ${esc(a.model)} — ${esc(a.detail)}${a.hint ? " · " + esc(a.hint) : ""}</div>`).join("");
   }catch(err){ $("models").innerHTML = `<div class="bad">${esc(err.message)}</div>`; }
   finally{ $("load-models").disabled = false; }

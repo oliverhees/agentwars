@@ -136,3 +136,49 @@ def test_team_endpoint_folgt_den_einstellungen(angemeldet):
     angemeldet.put("/api/agents/glm", json={"enabled": False})
     ids = [a["id"] for a in angemeldet.get("/api/team").json()["agents"]]
     assert "glm" not in ids and "claude" in ids
+
+
+# ---------------------------------------------------------------- Modellsuche
+from app.preflight import chat_models, suggest   # noqa: E402
+
+KATALOG = [
+    "moonshotai/Kimi-K3", "nvidia/DAM-3B", "Qwen/Qwen3.5-397B-A17B",
+    "qwen3.5-27b", "qwen3.5-9b", "deepseek-ai/DeepSeek-V4-Pro",
+    "deepseek-v3-0324", "zai-org/GLM-5.2", "zai-org/GLM-5.2-FP8",
+    "BAAI/bge-m3", "openai/whisper-large-v3", "black-forest-labs/FLUX.1-dev",
+    "nvidia/parakeet-tdt-1.1b", "Qwen/Qwen3-Embedding-8B", "zai-org/GLM-OCR",
+    "hexgrad/Kokoro-82M", "nvidia/audio-codec-22khz",
+]
+
+
+@pytest.mark.parametrize("wunsch,erwartet", [
+    ("openai/kimi-k3", "moonshotai/Kimi-K3"),
+    ("openai/deepseek-v4-pro", "deepseek-ai/DeepSeek-V4-Pro"),
+    ("openai/glm-5.2", "zai-org/GLM-5.2"),
+])
+def test_der_richtige_slug_steht_vorn(wunsch, erwartet):
+    """difflib schlug für 'kimi-k3' vorher 'nvidia/DAM-3B' vor."""
+    assert suggest(wunsch, KATALOG)[0] == erwartet
+
+
+def test_teiltreffer_schlaegt_nur_aehnliche_zeichen():
+    treffer = suggest("openai/qwen3.5", KATALOG)
+    assert all("qwen3.5" in t.lower() for t in treffer)
+
+
+def test_kein_treffer_bei_voellig_fremdem_namen():
+    assert suggest("openai/voellig-erfunden", KATALOG) == []
+
+
+def test_nicht_chat_modelle_fliegen_raus():
+    gefiltert = chat_models(KATALOG)
+    assert "moonshotai/Kimi-K3" in gefiltert
+    for weg in ["BAAI/bge-m3", "openai/whisper-large-v3",
+                "black-forest-labs/FLUX.1-dev", "Qwen/Qwen3-Embedding-8B",
+                "zai-org/GLM-OCR", "hexgrad/Kokoro-82M",
+                "nvidia/audio-codec-22khz", "nvidia/parakeet-tdt-1.1b"]:
+        assert weg not in gefiltert
+
+
+def test_vorschlaege_kommen_nie_aus_dem_nicht_chat_bereich():
+    assert "openai/whisper-large-v3" not in suggest("openai/whisper", KATALOG)

@@ -542,7 +542,9 @@ $("probe").onclick = async () => {
     const catalog = data.router_error
       ? `<div class="cat">Router-Katalog: ${esc(data.router_error)}</div>`
       : (data.router_models.length
-          ? `<div class="cat">Router kennt: ${data.router_models.map(esc).join(", ")}</div>`
+          ? `<div class="cat">Router: ${data.router_models.length} Chat-Modelle
+             von ${data.router_total} Eintr\u00e4gen. Vollst\u00e4ndige Auswahl unter
+             <a href="/settings" style="color:inherit">Einstellungen</a>.</div>`
           : "");
     $("check").innerHTML = rows + catalog;
   }catch(err){
