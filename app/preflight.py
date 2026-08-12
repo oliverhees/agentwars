@@ -50,9 +50,13 @@ async def router_models() -> tuple[list[str], str]:
     return sorted(slugs), ""
 
 
-async def _probe_claude_code() -> tuple[bool, str]:
-    """Claude Code wird nicht mit einem echten Call getestet – das würde
-    Abo-Kontingent verbrennen. Binary + Auth reichen als Aussage."""
+async def _probe_claude_code(deep: bool = True) -> tuple[bool, str]:
+    """Ist Claude Code installiert UND verbunden?
+
+    Die drei Stufen bauen aufeinander auf: CLI vorhanden, Token hinterlegt,
+    echte Anfrage kommt durch. Nur die dritte beweist, dass die Subscription
+    wirklich greift – `--version` fasst das Netz nicht an.
+    """
     if not shutil.which(claude_code.CLAUDE_BIN):
         return False, f"CLI '{claude_code.CLAUDE_BIN}' nicht im PATH."
     if not settings.get("claude_code_oauth_token"):
@@ -67,7 +71,15 @@ async def _probe_claude_code() -> tuple[bool, str]:
         return False, f"CLI nicht startbar ({exc})."
     if proc.returncode != 0:
         return False, f"CLI beendet sich mit Code {proc.returncode}."
-    return True, f"Claude Code bereit ({out.decode(errors='replace').strip()})."
+    version = out.decode(errors="replace").strip()
+
+    if not deep:
+        return True, f"CLI installiert ({version}) – Verbindung ungeprüft."
+    try:
+        ok, detail = await claude_code.ping()
+    except Exception as exc:
+        return False, f"Verbindungstest fehlgeschlagen ({exc})."
+    return ok, f"{version} · {detail}"
 
 
 async def _probe_model(spec: AgentSpec) -> tuple[bool, str]:
@@ -91,8 +103,12 @@ async def _probe_model(spec: AgentSpec) -> tuple[bool, str]:
     return True, "antwortet."
 
 
-async def check() -> dict:
-    """Prüft alle Agenten parallel und schlägt bei falschen Slugs Alternativen vor."""
+async def check(deep: bool = True) -> dict:
+    """Prüft alle Agenten parallel und schlägt bei falschen Slugs Alternativen vor.
+
+    deep=False überspringt den echten Claude-Code-Call – für den automatischen
+    Check vor jedem Meeting, wenn du kein Abo-Kontingent dafür ausgeben willst.
+    """
     team = build_team()
     catalog, catalog_error = await router_models()
 
@@ -100,7 +116,7 @@ async def check() -> dict:
         uses_cli = (spec.provider == "claude-code"
                     and settings.get("claude_transport") != "api")
         if uses_cli:
-            ok, detail = await _probe_claude_code()
+            ok, detail = await _probe_claude_code(deep)
             model_label = "Claude Code (Subscription)"
         else:
             ok, detail = await _probe_model(spec)

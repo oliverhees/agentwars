@@ -197,3 +197,20 @@ def test_deploy_ohne_zugeordnete_anwendung_ist_422(angemeldet):
                            json={"project_id": projekt["id"]})
     assert resp.status_code == 422
     assert "Coolify-Anwendung" in resp.json()["error"]
+
+
+def test_verbrauchsseite_und_api_brauchen_eine_session(client):
+    assert client.get("/api/usage").status_code == 401
+
+
+def test_verbrauch_startet_leer(angemeldet):
+    daten = angemeldet.get("/api/usage").json()
+    assert daten["total"]["calls"] == 0
+    assert daten["projects"] == []
+
+
+def test_verbrauch_laesst_sich_nach_projekt_filtern(angemeldet):
+    projekt = store._create_project("P", "", repo_full_name="o/r")
+    daten = angemeldet.get(f"/api/usage?project_id={projekt['id']}").json()
+    assert daten["project_id"] == projekt["id"]
+    assert daten["meetings"] == []

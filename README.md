@@ -107,10 +107,36 @@ Geprüft wird auf Schema (`https`/`ssh`), Host-Zugehörigkeit, rohe IP-Adressen 
 
 ### Preflight – antworten die Modelle überhaupt?
 
-Die Modell-Slugs in der `.env` sind Annahmen, bis sie jemand prüft. Stimmt einer nicht, fiel der Agent bisher erst mitten im Meeting aus.
+Die Modell-Slugs sind Annahmen, bis sie jemand prüft. Stimmt einer nicht, fiel der Agent sonst erst mitten im Meeting aus.
 
 - **„TEAM PRÜFEN"** im Startdialog: ein Vier-Token-Call pro Agent, plus der echte Modellkatalog deines HostYourAI-Routers. Bei einem falschen Slug schlägt der Preflight passende Kandidaten aus dem Katalog vor.
+- **Claude Code wird echt getestet**, nicht nur auf Anwesenheit: `claude --version` fasst das Netz nicht an, ein abgelaufener Token bestünde diesen Test. Der Preflight schickt deshalb eine echte Mini-Anfrage („antworte mit OK") über die Subscription – ein paar Token für die Gewissheit, dass Installation *und* Verbindung stehen. Über `GET /api/preflight?deep=false` bleibt der schnelle Check ohne Call verfügbar.
 - Vor jedem Meeting läuft der Check automatisch und meldet Ausfälle im Chat (`PREFLIGHT_ON_START=0` schaltet das ab).
+
+## Verbrauch und Kosten
+
+Die Seite **`/usage`** zeigt, wer wie viel verbrannt hat – gesamt oder je Projekt:
+
+- Kosten als **Rechnungsposten** (API-Modelle) getrennt von **im Abo enthalten** (Claude Code). Beides in Euro, Kurs unter `/settings` → Kosten.
+- Aufschlüsselung je Agent, je Modell, je Phase und je Projekt; im Projektfilter zusätzlich je Meeting.
+- Tokens getrennt nach Ein- und Ausgabe, plus was aus dem Cache kam.
+
+Drei Genauigkeitsstufen, und das Dashboard sagt dir welche:
+
+| Quelle | Genauigkeit |
+|---|---|
+| Claude Code | exakt – die CLI meldet Tokens und Kosten selbst |
+| API-Modelle über LiteLLM | die vom Anbieter gemeldete Usage |
+| Kein Usage-Feld | über den Tokenizer geschätzt, im Dashboard als „geschätzt" markiert |
+
+**Router-Modelle brauchen deine Preise.** LiteLLM kennt die Konditionen von HostYourAI nicht, also stehen sie sonst mit 0 € da (und das Dashboard sagt es dir). Unter `/settings` → Kosten eine Zeile je Modell:
+
+```
+kimi-k3      = 0.30 / 1.20
+deepseek-v4-pro = 0.55 / 2.20
+```
+
+Links steht der Preis je 1 Mio. Eingabetoken, rechts je 1 Mio. Ausgabetoken, in USD. Deine Angaben schlagen die von LiteLLM – der Router rechnet anders ab als der Modellhersteller.
 
 ### Claude über deine Max-Subscription (Claude Code)
 

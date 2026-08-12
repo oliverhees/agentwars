@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import auth, preflight, settings, store
+from . import auth, preflight, settings, store, usage
 from .bus import bus
 from .config import PHASES, PROVIDERS, build_team, env
 from .coolify import CoolifyError, coolify
@@ -267,10 +267,28 @@ async def team() -> JSONResponse:
 
 
 @app.get("/api/preflight")
-async def preflight_check() -> JSONResponse:
+async def preflight_check(deep: bool = True) -> JSONResponse:
     """Sagt dir vor dem Meeting, welche Modelle wirklich antworten – und
-    welche Slugs der Router tatsächlich kennt."""
-    return JSONResponse(await preflight.check())
+    welche Slugs der Router tatsächlich kennt.
+
+    deep=true macht bei Claude Code einen echten Mini-Call, der Auth und
+    Erreichbarkeit belegt. deep=false prüft nur, ob die CLI da ist."""
+    return JSONResponse(await preflight.check(deep))
+
+
+# ---------------------------------------------------------------- Verbrauch
+@app.get("/usage")
+async def usage_page() -> FileResponse:
+    return FileResponse(os.path.join(STATIC, "usage.html"))
+
+
+@app.get("/api/usage")
+async def usage_report(project_id: str = "") -> JSONResponse:
+    """Tokens und Kosten – gesamt oder für ein Projekt."""
+    data = await usage.report(project_id.strip())
+    data["projects"] = await store.list_projects()
+    data["project_id"] = project_id.strip()
+    return JSONResponse(data)
 
 
 # ---------------------------------------------------------------- GitHub

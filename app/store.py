@@ -61,6 +61,26 @@ CREATE TABLE IF NOT EXISTS agents (
     is_chairman   INTEGER NOT NULL DEFAULT 0,
     enabled       INTEGER NOT NULL DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS usage (
+    seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            REAL NOT NULL,
+    project_id    TEXT NOT NULL DEFAULT '',
+    meeting_id    TEXT NOT NULL DEFAULT '',
+    agent_id      TEXT NOT NULL DEFAULT '',
+    agent_name    TEXT NOT NULL DEFAULT '',
+    phase         TEXT NOT NULL DEFAULT '',
+    provider      TEXT NOT NULL DEFAULT '',
+    model         TEXT NOT NULL DEFAULT '',
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read    INTEGER NOT NULL DEFAULT 0,
+    cache_write   INTEGER NOT NULL DEFAULT 0,
+    cost_usd      REAL NOT NULL DEFAULT 0,
+    billed        INTEGER NOT NULL DEFAULT 1,  -- 0 = im Abo enthalten
+    estimated     INTEGER NOT NULL DEFAULT 0   -- 1 = Tokens geschätzt
+);
+CREATE INDEX IF NOT EXISTS idx_usage_project ON usage(project_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_meeting ON usage(meeting_id);
 CREATE INDEX IF NOT EXISTS idx_meetings_project ON meetings(project_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_meeting ON events(meeting_id, seq);
 """

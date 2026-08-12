@@ -69,6 +69,23 @@ def _extract_result(event: dict) -> str | None:
     return None
 
 
+def _extract_usage(event: dict) -> dict | None:
+    """Claude Code rechnet selbst ab: das result-Event trägt Tokenzahlen und
+    die Kosten in USD. Das ist genauer als alles, was wir schätzen könnten –
+    auch wenn es über die Subscription läuft und dich nichts extra kostet."""
+    if event.get("type") != "result":
+        return None
+    usage = event.get("usage") or {}
+    return {
+        "input_tokens": int(usage.get("input_tokens") or 0),
+        "output_tokens": int(usage.get("output_tokens") or 0),
+        "cache_write": int(usage.get("cache_creation_input_tokens") or 0),
+        "cache_read": int(usage.get("cache_read_input_tokens") or 0),
+        "cost_usd": float(event.get("total_cost_usd") or 0.0),
+        "estimated": 0,
+    }
+
+
 def _extract_tool_uses(event: dict) -> list[str]:
     """Werkzeuggriffe fürs Live-Protokoll: 'Read src/app.py'."""
     if event.get("type") != "assistant":
@@ -85,9 +102,55 @@ def _extract_tool_uses(event: dict) -> list[str]:
     return uses
 
 
+async def ping(timeout: int = 90) -> tuple[bool, str]:
+    """Echter Verbindungstest: ein Mini-Call über die Subscription.
+
+    `claude --version` sagt nur, dass die CLI da ist – es fasst das Netz nicht
+    an. Ein abgelaufener oder vertippter Token besteht diesen Test und fliegt
+    dann mitten im Meeting auf. Hier läuft deshalb eine echte Anfrage, deren
+    Antwort auf ein Wort begrenzt ist: ein paar Token Abo-Kontingent für die
+    Gewissheit, dass Auth und Erreichbarkeit stimmen.
+    """
+    if not available():
+        return False, f"CLI '{CLAUDE_BIN}' nicht im PATH."
+    proc = await asyncio.create_subprocess_exec(
+        CLAUDE_BIN, "-p", "--output-format", "json",
+        env=_subprocess_env(),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        out, err = await asyncio.wait_for(
+            proc.communicate(b"Antworte ausschliesslich mit dem Wort: OK"),
+            timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return False, f"Keine Antwort innerhalb von {timeout}s."
+
+    if proc.returncode != 0:
+        detail = err.decode(errors="replace").strip()[-300:]
+        return False, f"Exit {proc.returncode}: {detail or 'ohne Meldung'}"
+    try:
+        payload = json.loads(out.decode(errors="replace") or "{}")
+    except json.JSONDecodeError:
+        return False, "Antwort war kein JSON – CLI-Version zu alt?"
+    if payload.get("is_error"):
+        return False, str(payload.get("result", ""))[:300]
+
+    usage = _extract_usage(payload) or {}
+    verbraucht = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+    return True, (f"Verbindung steht – Antwort erhalten "
+                  f"({verbraucht} Token verbraucht).")
+
+
 async def stream(prompt: str, *, msg_id: str, agent_id: str,
-                 cwd: str | None = None, profile: str | None = None) -> str:
+                 cwd: str | None = None, profile: str | None = None,
+                 timeout: int | None = None) -> tuple[str, dict | None]:
     """Streamt eine Claude-Code-Antwort Token für Token in den Team-Chat.
+
+    Gibt (Text, Verbrauch) zurück. Der Verbrauch kommt aus dem result-Event
+    von Claude Code selbst, ist also keine Schätzung.
 
     profile="review" + cwd=Repo → Claude Code darf den Code lesen und
     durchsuchen, aber nichts verändern und nichts ausführen.
@@ -115,7 +178,7 @@ async def stream(prompt: str, *, msg_id: str, agent_id: str,
         stderr=asyncio.subprocess.PIPE,
     )
 
-    full, result_text, stderr_tail = "", None, b""
+    full, result_text, stderr_tail, usage = "", None, b"", None
 
     async def feed_stdin() -> None:
         assert proc.stdin
@@ -142,7 +205,7 @@ async def stream(prompt: str, *, msg_id: str, agent_id: str,
             stderr_tail = (stderr_tail + chunk)[-2000:]
 
     async def read_stdout() -> None:
-        nonlocal full, result_text
+        nonlocal full, result_text, usage
         assert proc.stdout
         buffer = ""
         while True:
@@ -169,19 +232,23 @@ async def stream(prompt: str, *, msg_id: str, agent_id: str,
             final = _extract_result(event)
             if final is not None:
                 result_text = final
+            gemessen = _extract_usage(event)
+            if gemessen is not None:
+                usage = gemessen
         if buffer:
             await bus.emit({"type": "token", "id": msg_id,
                             "agent": agent_id, "text": buffer})
 
+    frist = timeout or TIMEOUT_SECONDS
     try:
         await asyncio.wait_for(
             asyncio.gather(feed_stdin(), read_stdout(), read_stderr()),
-            timeout=TIMEOUT_SECONDS,
+            timeout=frist,
         )
         await proc.wait()
     except asyncio.TimeoutError:
         proc.kill()
-        raise RuntimeError(f"Claude Code Timeout nach {TIMEOUT_SECONDS}s")
+        raise RuntimeError(f"Claude Code Timeout nach {frist}s")
 
     if proc.returncode not in (0, None) and not full and not result_text:
         detail = stderr_tail.decode(errors="replace")[-500:]
@@ -192,4 +259,4 @@ async def stream(prompt: str, *, msg_id: str, agent_id: str,
         full = result_text
         await bus.emit({"type": "token", "id": msg_id,
                         "agent": agent_id, "text": full})
-    return full or (result_text or "")
+    return full or (result_text or ""), usage

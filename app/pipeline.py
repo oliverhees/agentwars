@@ -15,7 +15,7 @@ import uuid
 
 import litellm
 
-from . import claude_code, mentions, preflight, settings, tickets
+from . import claude_code, mentions, preflight, settings, tickets, usage
 from .bus import bus
 from .config import CHAIRMAN_JSON_CONTRACT, build_team
 
@@ -30,6 +30,7 @@ class Meeting:
         self._team: dict = {}
         self.repo_dir: str | None = None
         self.project: dict = {}
+        self.phase = "briefing"   # für die Verbrauchsbuchung
 
     @property
     def team(self) -> dict:
@@ -73,11 +74,12 @@ class Meeting:
                                "Arbeitsverzeichnis. Nutze deine Tools, um den "
                                "Code selbst zu durchsuchen, bevor du urteilst. "
                                "Du hast Lesezugriff – du änderst nichts.")
-                full = await claude_code.stream(
+                full, gemessen = await claude_code.stream(
                     prompt, msg_id=msg_id, agent_id=agent_id,
                     cwd=self.repo_dir,
                     profile="review" if self.repo_dir else None,
                 )
+                await self._record_usage(spec, prompt, full, gemessen)
                 await bus.emit({"type": "msg_end", "id": msg_id,
                                 "agent": agent_id, "text": full})
                 await bus.agent_status(agent_id, "idle")
@@ -94,7 +96,7 @@ class Meeting:
             model = f"anthropic/{spec.model}"
             api_key = settings.get("anthropic_api_key")
 
-        full = ""
+        full, gemeldet = "", None
         try:
             kwargs: dict = {
                 "model": model,
@@ -109,9 +111,16 @@ class Meeting:
                 kwargs["api_key"] = api_key
             if spec.api_base:
                 kwargs["api_base"] = spec.api_base
+            # Viele OpenAI-kompatible Endpunkte liefern die Abrechnung nur,
+            # wenn man ausdrücklich danach fragt. Wer es nicht kann, ignoriert
+            # den Parameter (litellm.drop_params).
+            kwargs["stream_options"] = {"include_usage": True}
             stream = await litellm.acompletion(**kwargs)
             buffer = ""
             async for chunk in stream:
+                gezaehlt = getattr(chunk, "usage", None)
+                if gezaehlt:
+                    gemeldet = gezaehlt
                 delta = ""
                 try:
                     delta = chunk.choices[0].delta.content or ""
@@ -132,10 +141,52 @@ class Meeting:
             full += f"\n\n[{spec.name} ist ausgefallen: {exc}]"
             await bus.emit({"type": "token", "id": msg_id, "agent": agent_id,
                             "text": f"⚠️ Ausfall: {exc}"})
+        await self._record_usage(spec, spec.system_prompt + user_content,
+                                 full, None, gemeldet, model)
         await bus.emit({"type": "msg_end", "id": msg_id,
                         "agent": agent_id, "text": full})
         await bus.agent_status(agent_id, "idle")
         return full
+
+    async def _record_usage(self, spec, prompt: str, answer: str,
+                            claude_usage: dict | None = None,
+                            gemeldet=None, model: str = "") -> None:
+        """Verbrauch buchen – gemessen wenn möglich, sonst geschätzt.
+
+        Reihenfolge der Genauigkeit: Claude Code rechnet selbst ab, danach die
+        Usage-Angabe des Anbieters, zuletzt eine Schätzung über den Tokenizer.
+        Geschätzte Werte werden im Dashboard als solche markiert.
+        """
+        modell = model or spec.model
+        if claude_usage:
+            await usage.record(
+                project_id=self.project.get("id", ""),
+                meeting_id=bus.meeting_id or "", agent_id=spec.id,
+                agent_name=spec.name, phase=self.phase, provider=spec.provider,
+                model=modell, cost_usd=claude_usage["cost_usd"],
+                input_tokens=claude_usage["input_tokens"],
+                output_tokens=claude_usage["output_tokens"],
+                cache_read=claude_usage["cache_read"],
+                cache_write=claude_usage["cache_write"])
+            return
+
+        rein = getattr(gemeldet, "prompt_tokens", 0) or 0
+        raus = getattr(gemeldet, "completion_tokens", 0) or 0
+        geschaetzt = False
+        if not rein and not raus:
+            geschaetzt = True
+            try:
+                rein = litellm.token_counter(model=modell, text=prompt)
+                raus = litellm.token_counter(model=modell, text=answer)
+            except Exception:
+                # Grobe Faustregel, wenn selbst der Tokenizer fehlt.
+                rein, raus = len(prompt) // 4, len(answer) // 4
+        await usage.record(
+            project_id=self.project.get("id", ""),
+            meeting_id=bus.meeting_id or "", agent_id=spec.id,
+            agent_name=spec.name, phase=self.phase, provider=spec.provider,
+            model=modell, input_tokens=rein, output_tokens=raus,
+            estimated=geschaetzt)
 
     # ------------------------------------------------------------ Helfer
     async def _report_preflight(self) -> None:
@@ -200,6 +251,7 @@ class Meeting:
             )
 
             # ---------------- Phase 1: Einzelgutachten (alle parallel)
+            self.phase = "gutachten"
             await bus.phase("gutachten", "active")
             await bus.system(f"Phase 1 – Einzelbeiträge: Alle {len(self.team)} "
                              "nehmen sich das Projekt vor.")
@@ -213,6 +265,7 @@ class Meeting:
             await bus.phase("gutachten", "done")
 
             # ---------------- Phase 2: Kreuzverhör der Devs
+            self.phase = "kreuzverhoer"
             await bus.phase("kreuzverhoer", "active")
             await bus.system("Phase 2 – Kreuzverhör: Die Senior Devs reviewen sich gegenseitig.")
             notes = await self._founder_notes()
@@ -236,6 +289,7 @@ class Meeting:
             await bus.phase("kreuzverhoer", "done")
 
             # ---------------- Phase 3: Chairman-Synthese
+            self.phase = "synthese"
             await bus.phase("synthese", "active")
             await bus.system("Phase 3 – Der Chairman fasst zusammen und priorisiert.")
             notes = await self._founder_notes()
@@ -257,6 +311,7 @@ class Meeting:
             await bus.phase("synthese", "done")
 
             # ---------------- Phase 4: Tickets
+            self.phase = "plane"
             await bus.phase("plane", "active")
             issues = self._extract_issues(roadmap)
             blocker = tickets.readiness(self.project)

@@ -106,6 +106,16 @@ SETTINGS_SPEC = [
           "textarea", DEFAULT_MENTION_RULES,
           "Wird automatisch angehängt. Die Handles setzt das System ein."),
 
+    # ---- Kosten
+    _spec("model_prices", "MODEL_PRICES", "Preise je Modell", "Kosten",
+          "textarea", "",
+          "Eine Zeile je Modell: modell = EingabePreis / AusgabePreis "
+          "(USD je 1 Mio. Token), z. B. 'kimi-k3 = 0.30 / 1.20'. "
+          "Für Router-Modelle nötig – die kennt LiteLLM preislich nicht. "
+          "Deine Angaben schlagen die von LiteLLM."),
+    _spec("eur_per_usd", "EUR_PER_USD", "Kurs USD → EUR", "Kosten",
+          "text", "0.92", "Nur für die Anzeige im Dashboard."),
+
     # ---- Limits
     _spec("context_char_budget", "CONTEXT_CHAR_BUDGET", "Kontextbudget (Zeichen)",
           "Limits", "number", "160000"),
