@@ -108,7 +108,7 @@ select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   <div class="actions">
     <button id="save-agents">TEAM SPEICHERN</button>
     <button id="reset-agents" class="ghost">AUF STANDARD ZURÜCKSETZEN</button>
-    <button id="load-models" class="ghost">MODELLE VOM ROUTER LADEN</button>
+    <button id="load-models" class="ghost">TEAM PRÜFEN &amp; MODELLE NEU LADEN</button>
   </div>
   <div class="check" id="models"></div>
 
@@ -148,7 +148,9 @@ select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const state = { settings:[], agents:[], providers:[], models:[] };
+const state = { settings:[], agents:[], providers:[], models:[],
+                byProvider:{} };
+const EIGEN = '__EIGEN__';   // Freitext statt Liste
 
 function say(text, kind){
   $("status").textContent = text;
@@ -184,7 +186,9 @@ function agentCard(a){
       </div>
       <div class="field">
         <label>MODELL</label>
-        <input class="f-model" value="${esc(a.model)}" list="modellist" autocomplete="off">
+        <select class="f-model-select"></select>
+        <input class="f-model" value="${esc(a.model)}" autocomplete="off"
+               placeholder="Modellname" style="margin-top:8px" hidden>
       </div>
     </div>
     <div class="field">
@@ -200,10 +204,43 @@ function agentCard(a){
   </div>`;
 }
 
+function modelOptions(card){
+  const provider = card.querySelector(".f-provider").value;
+  const feld = card.querySelector(".f-model");
+  const auswahl = card.querySelector(".f-model-select");
+  const eintrag = state.byProvider[provider] || {models:[], error:""};
+  const liste = eintrag.models || [];
+  const wert = feld.value.trim();
+
+  auswahl.innerHTML = liste.map(m =>
+      `<option value="${esc(m)}"${m === wert ? " selected" : ""}>${esc(m || "(Standard von Claude Code)")}</option>`).join("")
+    + `<option value="${EIGEN}">＋ Eigenes Modell eintippen …</option>`;
+
+  // Unbekanntes oder fehlende Liste: Freitext zeigen, damit nichts verloren geht
+  const kennt = liste.includes(wert);
+  auswahl.value = kennt ? wert : EIGEN;
+  feld.hidden = kennt;
+  if (!liste.length){
+    auswahl.innerHTML = `<option value="${EIGEN}">${esc(eintrag.error
+      || "Kein Key hinterlegt – Modell von Hand eintragen")}</option>`;
+    feld.hidden = false;
+  }
+}
+
+function verdrahteModelle(card){
+  const feld = card.querySelector(".f-model");
+  const auswahl = card.querySelector(".f-model-select");
+  auswahl.onchange = () => {
+    if (auswahl.value === EIGEN){ feld.hidden = false; feld.focus(); }
+    else { feld.value = auswahl.value; feld.hidden = true; }
+  };
+  card.querySelector(".f-provider").onchange = () => modelOptions(card);
+  modelOptions(card);
+}
+
 function renderAgents(){
-  $("agents").innerHTML = state.agents.map(agentCard).join("")
-    + '<datalist id="modellist"></datalist>';
-  renderModelList();
+  $("agents").innerHTML = state.agents.map(agentCard).join("");
+  document.querySelectorAll(".agent").forEach(verdrahteModelle);
   // Genau ein Chairman – im UI erzwingen, nicht erst beim Speichern.
   document.querySelectorAll(".f-chairman").forEach(box => {
     box.onchange = () => {
@@ -213,11 +250,6 @@ function renderAgents(){
       });
     };
   });
-}
-
-function renderModelList(){
-  const list = $("modellist");
-  if (list) list.innerHTML = state.models.map(m => `<option value="${esc(m)}"></option>`).join("");
 }
 
 function collectAgents(){
@@ -293,11 +325,13 @@ function collectSettings(){
 
 /* ---------------- Aktionen ---------------- */
 async function loadAll(){
-  const [cfg, team] = await Promise.all([
-    api("GET", "/api/settings"), api("GET", "/api/agents")]);
+  const [cfg, team, katalog] = await Promise.all([
+    api("GET", "/api/settings"), api("GET", "/api/agents"),
+    api("GET", "/api/models").catch(() => ({providers:{}}))]);
   state.settings = cfg.settings;
   state.agents = team.agents;
   state.providers = team.providers;
+  state.byProvider = katalog.providers || {};
   renderAgents();
   renderSettings(cfg.groups);
   $("head").textContent = `${state.agents.filter(a => a.enabled).length} Agenten aktiv`;
@@ -330,43 +364,27 @@ $("reset-agents").onclick = async () => {
 
 $("load-models").onclick = async () => {
   $("load-models").disabled = true;
-  $("models").innerHTML = '<div>Frage den Router …</div>';
+  $("models").innerHTML = '<div>Prüfe Modelle …</div>';
   try{
+    // Modellisten frisch holen, damit die Auswahlfelder aktuell sind …
+    const katalog = await api("GET", "/api/models");
+    state.byProvider = katalog.providers || {};
+    document.querySelectorAll(".agent").forEach(modelOptions);
+
+    // … und dann jeden Agenten wirklich anfragen.
     const data = await api("GET", "/api/preflight");
-    state.models = data.router_models || [];
-    renderModelList();
-    $("models").innerHTML = data.router_error
-      ? `<div class="bad">${esc(data.router_error)}</div>`
-      : `<div class="ok">${state.models.length} Chat-Modelle von ${data.router_total}
-           Katalogeintr\u00e4gen – jetzt in der Auswahl der Modellfelder.</div>
-         <div class="hint">Achtung: Der Katalog listet auch Modelle, die nur auf
-           Anfrage laufen. Ob eins wirklich antwortet, sagt dir nur diese
-           Pr\u00fcfung – nach dem \u00c4ndern also speichern und erneut laden.</div>`
-        + data.agents.map(a => `<div class="${a.ok ? "ok" : "bad"}">${a.ok ? "✓" : "✕"} ${esc(a.name)} · ${esc(a.model)} — ${esc(a.detail)}${a.hint ? " · " + esc(a.hint) : ""}</div>`).join("");
+    const zusammenfassung = Object.entries(state.byProvider)
+      .map(([name, eintrag]) => eintrag.error
+        ? `<div class="hint">${esc(name)}: ${esc(eintrag.error)}</div>`
+        : `<div class="ok">${esc(name)}: ${eintrag.models.length} Modelle in der Auswahl</div>`)
+      .join("");
+    $("models").innerHTML = zusammenfassung
+      + (data.router_error ? `<div class="bad">${esc(data.router_error)}</div>` : "")
+      + `<div class="hint">Katalog heißt nicht verfügbar: manche Modelle laufen
+         nur auf Anfrage. Was wirklich antwortet, sagt nur diese Prüfung.</div>`
+      + data.agents.map(a => `<div class="${a.ok ? "ok" : "bad"}">${a.ok ? "✓" : "✕"} ${esc(a.name)} · ${esc(a.model)} — ${esc(a.detail)}${a.hint ? " · " + esc(a.hint) : ""}</div>`).join("");
   }catch(err){ $("models").innerHTML = `<div class="bad">${esc(err.message)}</div>`; }
   finally{ $("load-models").disabled = false; }
-};
-
-/* ---------------- Claude Code ---------------- */
-function ccZeile(label, stufe, extra){
-  return `<div class="${stufe.ok ? "ok" : "bad"}">${stufe.ok ? "✓" : "✕"}
-    ${esc(label)} — ${esc(stufe.detail)}${extra ? " · " + esc(extra) : ""}</div>`;
-}
-
-async function ccLaden(probe){
-  $("cc").innerHTML = "<div>Prüfe …</div>";
-  try{
-    const d = await api("GET", "/api/claude-code" + (probe ? "?probe=true" : ""));
-    $("cc").innerHTML =
-      ccZeile("CLI installiert", d.cli, d.cli.version)
-      + ccZeile("Token hinterlegt", d.token, d.token.source ? "Quelle: " + d.token.source : "")
-      + ccZeile("Verbindung", d.connection);
-  }catch(err){ $("cc").innerHTML = `<div class="bad">${esc(err.message)}</div>`; }
-}
-
-$("cc-probe").onclick = async () => {
-  $("cc-probe").disabled = true;
-  try{ await ccLaden(true); } finally { $("cc-probe").disabled = false; }
 };
 
 $("probe").onclick = async () => {

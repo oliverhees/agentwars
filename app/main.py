@@ -6,7 +6,8 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import auth, claude_code, preflight, settings, store, usage
+from . import (auth, claude_code, models, preflight, settings, store,
+               usage)
 from .bus import bus
 from .config import PHASES, PROVIDERS, build_team, env
 from .coolify import CoolifyError, coolify
@@ -287,6 +288,15 @@ async def preflight_check(deep: bool = True) -> JSONResponse:
     deep=true macht bei Claude Code einen echten Mini-Call, der Auth und
     Erreichbarkeit belegt. deep=false prüft nur, ob die CLI da ist."""
     return JSONResponse(await preflight.check(deep))
+
+
+@app.get("/api/models")
+async def model_catalog() -> JSONResponse:
+    """Verfügbare Modelle je Provider – Grundlage für die Auswahlfelder.
+
+    Damit muss niemand Modellnamen aus dem Gedächtnis tippen; ein Tippfehler
+    fällt sonst erst mitten im Meeting auf."""
+    return JSONResponse({"providers": await models.catalog()})
 
 
 @app.get("/api/claude-code")

@@ -30,6 +30,7 @@ from .config import env
 # bleiben in der .env, damit sie niemand über das UI aufweichen kann.
 CLAUDE_BIN = env("CLAUDE_CODE_BIN", "claude")
 TIMEOUT_SECONDS = int(env("CLAUDE_CODE_TIMEOUT", "900"))
+CONFIG_DIR = env("CLAUDE_CONFIG_DIR", "/data/claude")
 
 # Toolprofile. "review" darf nur lesen – das ist der Modus, in dem heute
 # jedes Board-Meeting läuft. "build" ist für die spätere Umsetzungsphase
@@ -52,6 +53,15 @@ def _subprocess_env() -> dict:
     oauth = settings.get("claude_code_oauth_token")
     if oauth:
         e["CLAUDE_CODE_OAUTH_TOKEN"] = oauth
+    # Die CLI legt Zustand ab (Onboarding, Trust-Entscheidungen). Ohne
+    # beschreibbares Verzeichnis bricht sie ab; auf dem Volume überlebt der
+    # Zustand außerdem den nächsten Redeploy.
+    e.setdefault("CLAUDE_CONFIG_DIR", CONFIG_DIR)
+    e.setdefault("HOME", os.path.dirname(CONFIG_DIR) or "/tmp")
+    try:
+        os.makedirs(e["CLAUDE_CONFIG_DIR"], exist_ok=True)
+    except OSError:
+        pass
     return e
 
 
@@ -186,15 +196,23 @@ async def ping(timeout: int = 90) -> tuple[bool, str]:
         proc.kill()
         return False, f"Keine Antwort innerhalb von {timeout}s."
 
-    if proc.returncode != 0:
-        detail = err.decode(errors="replace").strip()[-300:]
-        return False, f"Exit {proc.returncode}: {detail or 'ohne Meldung'}"
+    # Claude Code schreibt seine Fehler als JSON nach stdout, nicht nach
+    # stderr – wer nur stderr liest, bekommt "Exit 1" ohne jede Erklärung.
+    stdout = out.decode(errors="replace").strip()
+    stderr = err.decode(errors="replace").strip()
+    payload = {}
     try:
-        payload = json.loads(out.decode(errors="replace") or "{}")
+        payload = json.loads(stdout or "{}")
     except json.JSONDecodeError:
-        return False, "Antwort war kein JSON – CLI-Version zu alt?"
-    if payload.get("is_error"):
-        return False, str(payload.get("result", ""))[:300]
+        payload = {}
+
+    if payload.get("is_error") or (proc.returncode != 0 and payload.get("result")):
+        return False, str(payload.get("result") or payload.get("error"))[:400]
+    if proc.returncode != 0:
+        detail = stderr or stdout or "keine Ausgabe"
+        return False, f"Exit {proc.returncode}: {detail[-400:]}"
+    if not payload:
+        return False, f"Unerwartete Antwort: {(stdout or stderr)[:300] or 'leer'}"
 
     usage = _extract_usage(payload) or {}
     verbraucht = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)

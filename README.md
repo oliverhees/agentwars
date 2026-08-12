@@ -29,7 +29,8 @@ Unter **`/settings`** wird das System konfiguriert, ohne die `.env` anzufassen:
 - **Zugänge:** alle API-Keys, Base-URLs und der Memory-Proxy
 - **Plane & Coolify:** URL und Token – mit Verbindungstest. Das konkrete Plane-Projekt und die Coolify-Anwendung hängen am Boardroom-Projekt, nicht global
 - **Limits:** Kontextbudget, Tokenbudgets, Diskussionsrunden
-- **„Modelle vom Router laden"** holt den echten Modellkatalog von HostYourAI in die Auswahlfelder – Schluss mit geratenen Slugs
+- **Modell-Auswahl statt Tippen:** Sobald ein API-Key hinterlegt ist, holt der Boardroom die Modellliste beim Anbieter selbst (OpenAI, Anthropic, HostYourAI) und bietet sie im Agenten als Dropdown an. Ein falsch geschriebener Modellname fällt so gar nicht erst auf. Freitext bleibt über „＋ Eigenes Modell eintippen" möglich, weil jede Liste veralten kann.
+- **„Team prüfen & Modelle neu laden"** aktualisiert die Listen und fragt anschließend jeden Agenten wirklich an
 
 Die Reihenfolge der Wahrheit ist **Datenbank → `.env` → Default**. Bestehende Deployments laufen also unverändert weiter, bis du im UI etwas überschreibst. Geheimnisse verlassen den Server nie im Klartext: die API meldet nur „gesetzt: ja/nein", ein leeres Feld heißt „unverändert lassen".
 

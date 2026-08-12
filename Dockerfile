@@ -8,8 +8,11 @@ WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
-# Persistenz-Volume: Projekte, Meetings, Verlauf
-RUN mkdir -p /data
-ENV BOARDROOM_DB=/data/boardroom.db
+# Persistenz-Volume: Projekte, Meetings, Verlauf – und der Zustand der
+# Claude-Code-CLI, damit Onboarding und Trust-Entscheidungen einen Redeploy
+# überleben statt jedes Mal neu abzulaufen.
+RUN mkdir -p /data/claude
+ENV BOARDROOM_DB=/data/boardroom.db \
+    CLAUDE_CONFIG_DIR=/data/claude
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

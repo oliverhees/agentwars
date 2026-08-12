@@ -233,3 +233,58 @@ def test_diagnose_braucht_eine_session(monkeypatch):
 def test_diagnose_ueber_die_api(angemeldet):
     bericht = angemeldet.get("/api/claude-code").json()
     assert "cli" in bericht and "token" in bericht
+
+
+# ---------------------------------------------------------------- Modellkatalog
+def _katalog():
+    import asyncio
+
+    from app import models
+    return asyncio.run(models.catalog())
+
+
+def test_katalog_kennt_alle_provider():
+    assert set(_katalog()) == {"openai", "anthropic", "hostyourai", "claude-code"}
+
+
+def test_ohne_key_bleibt_die_liste_leer_ohne_fehler():
+    """Kein Key ist kein Fehler – das Feld bleibt einfach Freitext."""
+    eintrag = _katalog()["openai"]
+    assert eintrag["models"] == [] and eintrag["error"] == ""
+
+
+def test_claude_code_bietet_immer_die_kurznamen():
+    modelle = _katalog()["claude-code"]["models"]
+    assert "sonnet" in modelle and "opus" in modelle
+    assert "" in modelle          # leer = Standard der CLI
+
+
+def test_openai_hilfsmodelle_werden_gefiltert():
+    from app.models import OPENAI_NICHT_CHAT
+    for weg in ["text-embedding-3-large", "whisper-1", "dall-e-3",
+                "tts-1-hd", "omni-moderation-latest"]:
+        assert OPENAI_NICHT_CHAT.search(weg), weg
+    for bleibt in ["gpt-5.2", "gpt-4.6", "o3-pro"]:
+        assert not OPENAI_NICHT_CHAT.search(bleibt), bleibt
+
+
+def test_katalog_braucht_eine_session(monkeypatch):
+    monkeypatch.setattr(auth, "PASSWORD", "geheim")
+    monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", False)
+    assert TestClient(main.app).get("/api/models").status_code == 401
+
+
+def test_katalog_ueber_die_api(angemeldet):
+    daten = angemeldet.get("/api/models").json()
+    assert "claude-code" in daten["providers"]
+
+
+def test_ein_kaputter_provider_reisst_die_anderen_nicht_mit(monkeypatch):
+    from app import models
+
+    async def kaputt():
+        raise RuntimeError("Netz weg")
+    monkeypatch.setitem(models.QUELLEN, "openai", kaputt)
+    katalog = _katalog()
+    assert "Netz weg" in katalog["openai"]["error"]
+    assert katalog["claude-code"]["models"]
