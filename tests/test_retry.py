@@ -64,11 +64,14 @@ def antworten(*folge):
 
 
 @pytest.fixture
-def board():
+def board(monkeypatch):
     settings.set_many({"retry_attempts": "3", "retry_backoff": "0",
                        "hyai_api_key": "sk-test"})
     m = pipeline.Meeting()
     m.reload_team()
+    # Sonst startet der Claude-Agent die echte CLI – auf einer Maschine mit
+    # installiertem Claude Code hängt der Test dann am Subprozess.
+    monkeypatch.setattr(m, "_use_claude_code", lambda _agent_id: False)
     return m
 
 

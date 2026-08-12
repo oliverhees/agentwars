@@ -74,6 +74,22 @@ Projekte, Meetings und der komplette Verlauf liegen in SQLite (`AGENTWARS_DB`, i
 
 **Du kannst jederzeit reinschreiben.** Deine Nachrichten werden an der nächsten Phasengrenze als "Anweisungen vom Gründer" in den Kontext aller Agenten injiziert.
 
+### Die Ansicht folgt der Phase
+
+Sechs gleichzeitig geschriebene Gutachten sind kein Gespräch – als
+Chatverlauf untereinander waren sie unlesbar. Jede Phase bekommt deshalb die
+Form, die zu ihr passt:
+
+| Phase | Form | warum |
+|---|---|---|
+| Einzelbeiträge | **Spalten** nebeneinander, eine je Agent | parallel entstanden, also parallel lesbar – du vergleichst, statt zu scrollen |
+| Kreuzverhör und @Diskussionen | **Chat** | hier antwortet wirklich jemand auf jemanden |
+| Chairman-Synthese | **Dokument** | das ist ein Ergebnis, kein Beitrag |
+
+Die Eingabezeile bleibt überall dieselbe. Auf schmalen Schirmen brechen die
+Spalten untereinander um – seitwärts scrollen musst du nie. Werkzeug- und
+Fehlermeldungen stehen in der Spalte des Agenten, um den es geht.
+
 ## @-Mentions – das Team redet miteinander
 
 - **Agent → Agent:** Jeder Agent kann Kollegen mit `@gpt`, `@kimi` usw. direkt ansprechen. Nach Gutachten und Kreuzverhör laufen automatische Diskussionsrunden: Erwähnte antworten, deren Antworten können wieder erwähnen – begrenzt auf `MAX_MENTION_ROUNDS` (Default 2), damit kein Endlos-Ping-Pong entsteht.

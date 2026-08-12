@@ -115,6 +115,52 @@ main{flex:1; display:flex; min-height:0}
   background:var(--agent,#888); vertical-align:-2px; margin-left:2px;
   animation:pulse .8s steps(2) infinite}
 
+/* ---------- Ansicht folgt der Phase ----------
+   Sechs gleichzeitig geschriebene Gutachten sind kein Gespräch. Sie stehen
+   deshalb als Spalten nebeneinander, die Diskussion bleibt Chat, die
+   Synthese wird ein Dokument. */
+.section{max-width:100%; margin:0 auto 18px}
+.section-label{margin:0 0 8px;
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px;
+  letter-spacing:.16em; color:var(--muted); display:flex;
+  align-items:center; gap:10px}
+.section-label::after{content:""; flex:1; height:1px; background:var(--line)}
+/* auto-fit statt fester Spaltenzahl: sechs Beiträge passen auf einen
+   breiten Schirm nebeneinander, auf einem schmalen brechen sie um –
+   seitwärts scrollen muss niemand. */
+.cols{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+  gap:12px; align-items:start}
+.col{background:var(--panel); border:1px solid var(--line);
+  border-top:2px solid var(--agent,#555); border-radius:var(--radius);
+  display:flex; flex-direction:column; max-height:min(62vh, 620px);
+  min-width:0}
+.col > .head{display:flex; align-items:baseline; gap:8px; flex:none;
+  padding:8px 12px; border-bottom:1px solid var(--line);
+  background:var(--panel); border-radius:var(--radius) var(--radius) 0 0}
+.col > .head .name{font-family:"IBM Plex Mono",monospace; font-size:12px;
+  font-weight:600}
+.col > .head .role{font-size:11px; color:var(--muted); overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap}
+.col > .stack{overflow-y:auto; padding:10px 12px; overscroll-behavior:contain}
+.col .msg{max-width:none; margin:0 0 8px}
+.col .msg .body{background:none; border:none; border-left:none;
+  border-radius:0; padding:0; font-size:14px}
+.col .sys{margin:4px 0; text-align:left; font-size:11px}
+.docs{max-width:900px; margin:0 auto}
+.doc{background:var(--panel); border:1px solid var(--line);
+  border-top:2px solid var(--agent,var(--accent)); border-radius:var(--radius);
+  padding:18px 22px}
+.doc > .head{display:flex; align-items:baseline; gap:8px;
+  padding-bottom:10px; margin-bottom:12px; border-bottom:1px solid var(--line)}
+.doc > .head .name{font-family:"IBM Plex Mono",monospace; font-size:12px;
+  font-weight:600}
+.doc > .head .role{font-size:11px; color:var(--muted)}
+.doc .msg{max-width:none; margin:0}
+.doc .msg .body{background:none; border:none; border-radius:0; padding:0;
+  font-size:15.5px; line-height:1.68}
+.doc .msg .body :is(h1,h2,h3,h4){font-size:16px; margin:18px 0 6px}
+.doc .msg .body :first-child{margin-top:0}
+
 /* ---------- Composer ---------- */
 .composer{border-top:1px solid var(--line); background:var(--panel);
   padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
@@ -209,6 +255,11 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
   .member{flex:none; padding:4px 8px}
   .member .tag{display:none}
   .agenda{order:3; width:100%}
+  /* Nebeneinander gibt es auf dem Handy nicht – untereinander mit
+     Agentennamen ist immer noch besser als ein Chat-Mischmasch. */
+  .cols{grid-template-columns:1fr}
+  .col{max-height:none}
+  .doc{padding:14px}
 }
 </style>
 </head>
@@ -293,10 +344,17 @@ const state = { agents:{}, phases:[], msgs:{}, projects:[],
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-marked.setOptions({ breaks:true });
+/* marked und DOMPurify kommen vom CDN. Ist es nicht erreichbar – gesperrter
+   Ausgang, Ausfall, Offline-Server – warf der erste Aufruf hier und riss das
+   ganze Skript mit: keine Projektliste, kein Chat, keine Einstellungen.
+   Ohne Markdown geht es zur Not auch, ohne Oberfläche nicht. */
+const MARKDOWN = typeof marked !== "undefined" && typeof DOMPurify !== "undefined";
+if (MARKDOWN) marked.setOptions({ breaks:true });
 
 function md(text){
-  let html = DOMPurify.sanitize(marked.parse(text || ""));
+  let html = MARKDOWN
+    ? DOMPurify.sanitize(marked.parse(text || ""))
+    : "<p>" + esc(text).replace(/\n/g, "<br>") + "</p>";
   // @mentions einfärben (Agenten + DU)
   for (const id in state.agents){
     const a = state.agents[id];
@@ -461,9 +519,93 @@ function scrollDown(){
   if (nearBottom) c.scrollTop = c.scrollHeight;
 }
 
+/* ---------------- Ansicht folgt der Phase ----------------
+   Ein Gutachten, sechsmal gleichzeitig geschrieben, ist kein Chatbeitrag.
+   Der Server sagt zu jeder Nachricht, welche Form sie bekommt: columns,
+   chat oder doc. Chat schliesst einen offenen Block, Phasenwechsel auch. */
+const PHASENTITEL = {
+  gutachten: "PHASE 1 · EINZELBEITRÄGE",
+  kreuzverhoer: "PHASE 2 · KREUZVERHÖR",
+  synthese: "PHASE 3 · SYNTHESE"
+};
+let abschnitt = null;
+
+function agentOf(id){
+  return state.agents[id] || {name:id, color:"#888", tagline:""};
+}
+
+function agentKopf(a){
+  return `<div class="head">
+      <span class="name" style="color:${a.color}">${a.name}</span>
+      <span class="role">${a.tagline}</span>
+    </div>`;
+}
+
+function neuerAbschnitt(view, phase){
+  const wrap = document.createElement("div");
+  wrap.className = "section";
+  const label = document.createElement("div");
+  label.className = "section-label";
+  label.textContent = PHASENTITEL[phase] ||
+    (view === "doc" ? "DOKUMENT" : "BEITRÄGE");
+  const inner = document.createElement("div");
+  inner.className = view === "columns" ? "cols" : "docs";
+  wrap.append(label, inner);
+  $("chat").appendChild(wrap);
+  return {view, phase, wrap, inner, spalten:{}};
+}
+
+function spalte(abs, agentId){
+  if (abs.spalten[agentId]) return abs.spalten[agentId];
+  const a = agentOf(agentId);
+  const col = document.createElement("div");
+  col.className = "col";
+  col.style.setProperty("--agent", a.color);
+  col.innerHTML = agentKopf(a) + '<div class="stack"></div>';
+  abs.inner.appendChild(col);
+  abs.spalten[agentId] = col.querySelector(".stack");
+  return abs.spalten[agentId];
+}
+
+function dokument(abs, agentId){
+  const a = agentOf(agentId);
+  const art = document.createElement("article");
+  art.className = "doc";
+  art.style.setProperty("--agent", a.color);
+  art.innerHTML = agentKopf(a);
+  abs.inner.appendChild(art);
+  return art;
+}
+
+function ziel(ev){
+  const view = ev.view || "chat";
+  if (view === "chat"){ abschnitt = null; return $("chat"); }
+  if (!abschnitt || abschnitt.view !== view || abschnitt.phase !== ev.phase)
+    abschnitt = neuerAbschnitt(view, ev.phase);
+  return view === "columns" ? spalte(abschnitt, ev.agent)
+                            : dokument(abschnitt, ev.agent);
+}
+
+/* Systemzeilen und Werkzeugmeldungen sollen bei dem stehen, worauf sie
+   sich beziehen – in der Spalte des Agenten, sonst unter dem Block. */
+function notizZiel(agentId){
+  if (!abschnitt) return $("chat");
+  if (abschnitt.view === "columns" && agentId && abschnitt.spalten[agentId])
+    return abschnitt.spalten[agentId];
+  return abschnitt.wrap;
+}
+
+function scrollInto(div){
+  const stack = div && div.closest(".stack");
+  if (!stack){ scrollDown(); return; }
+  if (stack.scrollHeight - stack.scrollTop - stack.clientHeight < 160)
+    stack.scrollTop = stack.scrollHeight;
+}
+
 /* ---------------- Events rendern ---------------- */
 function handle(ev){
   if (ev.type === "phase"){
+    abschnitt = null;   // neue Phase, neuer Block
     const el = $("phase-" + ev.phase);
     if (el){ el.classList.remove("active","done");
       if (ev.status === "active") el.classList.add("active");
@@ -474,17 +616,21 @@ function handle(ev){
     if (dot) dot.classList.toggle("typing", ev.status === "typing");
   }
   else if (ev.type === "msg_start"){
-    const a = state.agents[ev.agent] || {name:ev.agent, color:"#888", tagline:""};
+    // Nach einem Verbindungsabriss schickt der Server den Verlauf erneut –
+    // ohne diese Bremse stünde jeder Beitrag zweimal da.
+    if ($("m-" + ev.id)) return;
+    const a = agentOf(ev.agent);
     const div = document.createElement("div");
     div.className = "msg"; div.id = "m-" + ev.id;
     div.style.setProperty("--agent", a.color);
-    div.innerHTML = `
+    const kopf = (ev.view === "columns" || ev.view === "doc") ? "" : `
       <div class="head">
         <span class="name" style="color:${a.color}">${a.name}</span>
         <span class="role">${a.tagline}</span>
-      </div>
+      </div>`;
+    div.innerHTML = kopf + `
       <div class="body"><span class="stream"></span><span class="caret" style="--agent:${a.color};background:${a.color}"></span></div>`;
-    $("chat").appendChild(div);
+    ziel(ev).appendChild(div);
     state.msgs[ev.id] = "";
     scrollDown();
   }
@@ -493,7 +639,7 @@ function handle(ev){
     if (!div){ return; }
     state.msgs[ev.id] += ev.text;
     div.querySelector(".stream").textContent = state.msgs[ev.id];
-    scrollDown();
+    scrollInto(div);
   }
   else if (ev.type === "msg_reset"){
     // Fehlversuch: das halbe Fragment verwerfen, sonst klebt es vor der
@@ -503,19 +649,17 @@ function handle(ev){
     if (div) div.querySelector(".stream").textContent = "";
   }
   else if (ev.type === "msg_end"){
-    const div = $("m-" + ev.id);
-    if (div){
-      div.querySelector(".caret")?.remove();
-      div.querySelector(".stream").innerHTML = md(ev.text);
-    } else {
-      // Nachricht kam aus der History (Reload)
-      handle({type:"msg_start", id:ev.id, agent:ev.agent});
-      const d = $("m-" + ev.id);
-      d.querySelector(".caret")?.remove();
-      d.querySelector(".stream").innerHTML = md(ev.text);
+    let div = $("m-" + ev.id);
+    if (!div){
+      // Nachricht kam aus der History (Reload) – Form mit übernehmen
+      handle({type:"msg_start", id:ev.id, agent:ev.agent,
+              view:ev.view, phase:ev.phase});
+      div = $("m-" + ev.id);
     }
+    div.querySelector(".caret")?.remove();
+    div.querySelector(".stream").innerHTML = md(ev.text);
     delete state.msgs[ev.id];
-    scrollDown();
+    scrollInto(div);
   }
   else if (ev.type === "user_msg"){
     const div = document.createElement("div");
@@ -539,14 +683,14 @@ function handle(ev){
     div.className = "sys tool";
     div.textContent = `⌁ ${a ? a.name : ev.agent}: ${ev.text}`;
     if (a) div.style.color = a.color;
-    $("chat").appendChild(div); scrollDown();
+    notizZiel(ev.agent).appendChild(div); scrollInto(div);
   }
   else if (ev.type === "system" || ev.type === "plane"){
     const div = document.createElement("div");
     const warn = ev.type === "system" && /warnung|fehler|fällt aus|fallen/i.test(ev.text);
     div.className = "sys" + (ev.type === "plane" ? " plane" : warn ? " warn" : "");
     div.textContent = (ev.type === "plane" ? "◆ " : "· ") + ev.text;
-    $("chat").appendChild(div); scrollDown();
+    notizZiel("").appendChild(div); scrollDown();
   }
 }
 

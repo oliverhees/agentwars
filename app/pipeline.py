@@ -9,6 +9,7 @@ Deine Chat-Nachrichten werden an jeder Phasengrenze eingesammelt und den
 Agenten als "Anweisungen vom Gründer" in den Kontext gelegt.
 """
 import asyncio
+import contextlib
 import json
 import re
 import uuid
@@ -32,6 +33,7 @@ class Meeting:
         self.repo_dir: str | None = None
         self.project: dict = {}
         self.phase = "briefing"   # für die Verbrauchsbuchung
+        self.view = "chat"        # welche Form die Beiträge im UI bekommen
 
     @property
     def team(self) -> dict:
@@ -44,6 +46,21 @@ class Meeting:
     def reload_team(self) -> None:
         """Aufstellung frisch aus den Einstellungen ziehen."""
         self._team = build_team()
+
+    @contextlib.contextmanager
+    def ansicht(self, view: str):
+        """Form der nächsten Beiträge im UI – Spalte, Chat oder Dokument.
+
+        Sechs parallel geschriebene Gutachten sind kein Gespräch; als
+        Chatverlauf gelesen waren sie unbrauchbar. Die Diskussion dagegen
+        ist eines und bleibt Chat.
+        """
+        vorher = self.view
+        self.view = view
+        try:
+            yield
+        finally:
+            self.view = vorher
 
     def _use_claude_code(self, agent_id: str) -> bool:
         """Nicht mehr an einen festen Agenten gebunden: wer als Provider
@@ -132,14 +149,19 @@ class Meeting:
         spec = self.team[agent_id]
         msg_id = uuid.uuid4().hex[:12]
         await bus.agent_status(agent_id, "typing")
-        await bus.emit({"type": "msg_start", "id": msg_id, "agent": agent_id})
+        # view sagt dem UI, welche Form der Beitrag bekommt: Spalte, Chat
+        # oder Dokument. Ein Gutachten ist kein Chatbeitrag, auch wenn es
+        # bisher wie einer aussah.
+        await bus.emit({"type": "msg_start", "id": msg_id, "agent": agent_id,
+                        "view": self.view, "phase": self.phase})
 
         # ---- Claude läuft über Claude Code (deine Max-Subscription) ----
         if self._use_claude_code(agent_id):
             text = await self._claude_code_pfad(spec, msg_id, user_content)
             if text is not None:
                 await bus.emit({"type": "msg_end", "id": msg_id,
-                                "agent": agent_id, "text": text})
+                                "agent": agent_id, "text": text,
+                                "view": self.view, "phase": self.phase})
                 await bus.agent_status(agent_id, "idle")
                 return text
 
@@ -180,7 +202,8 @@ class Meeting:
         await self._record_usage(spec, spec.system_prompt + user_content,
                                  full, None, gemeldet, model)
         await bus.emit({"type": "msg_end", "id": msg_id,
-                        "agent": agent_id, "text": full})
+                        "agent": agent_id, "text": full,
+                        "view": self.view, "phase": self.phase})
         await bus.agent_status(agent_id, "idle")
         return full
 
@@ -344,9 +367,10 @@ class Meeting:
                              "nehmen sich das Projekt vor.")
             notes = await self._founder_notes()
             prompt1 = base_context + notes + "\n\n" + settings.get("phase_review")
-            results = await asyncio.gather(
-                *[self._stream_agent(aid, prompt1) for aid in self.team]
-            )
+            with self.ansicht("columns"):
+                results = await asyncio.gather(
+                    *[self._stream_agent(aid, prompt1) for aid in self.team]
+                )
             gutachten = dict(zip(self.team.keys(), results))
             await mentions.run_discussion(self, gutachten, base_context)
             await bus.phase("gutachten", "done")
@@ -391,10 +415,11 @@ class Meeting:
                 + settings.get("phase_chairman")
                 + CHAIRMAN_JSON_CONTRACT   # nicht editierbar, sonst keine Tickets
             )
-            roadmap = await self._stream_agent(
-                chairman, chairman_prompt,
-                max_tokens=settings.get_int("max_tokens_chairman")
-            )
+            with self.ansicht("doc"):
+                roadmap = await self._stream_agent(
+                    chairman, chairman_prompt,
+                    max_tokens=settings.get_int("max_tokens_chairman")
+                )
             await bus.phase("synthese", "done")
 
             # ---------------- Phase 4: Tickets

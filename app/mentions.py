@@ -84,8 +84,11 @@ async def run_discussion(meeting, sources: dict[str, str],
                 f"\n\n{quoted}\n\nDu wurdest direkt angesprochen. Antworte kurz "
                 "und in der Sache auf die Punkte, die dich betreffen."
             )
-            answer = await meeting._stream_agent(
-                target, prompt, max_tokens=max_tokens)
+            # Eine Ansprache ist ein Gespräch – die gehört in den Chat,
+            # egal aus welcher Phase heraus sie ausgelöst wurde.
+            with meeting.ansicht("chat"):
+                answer = await meeting._stream_agent(
+                    target, prompt, max_tokens=max_tokens)
             return target, answer
 
         results = await asyncio.gather(
@@ -111,5 +114,6 @@ async def answer_user_mention(meeting, target: str, question: str) -> None:
         f"## Direkte Frage vom Gründer an dich\n{question}\n\n"
         "Antworte dem Gründer direkt, konkret und ohne Floskeln."
     )
-    await meeting._stream_agent(
-        target, prompt, max_tokens=settings.get_int("max_tokens_mention"))
+    with meeting.ansicht("chat"):
+        await meeting._stream_agent(
+            target, prompt, max_tokens=settings.get_int("max_tokens_mention"))
