@@ -138,8 +138,11 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
   justify-content:center; padding:16px; z-index:10}
 .start-card{background:var(--panel); border:1px solid var(--line);
   border-radius:14px; padding:22px; width:100%; max-width:520px}
+.card-head{display:flex; align-items:baseline; gap:12px;
+  justify-content:space-between; margin-bottom:4px}
+.card-head .settings-link{margin-left:0}
 .start-card h1{font-family:"IBM Plex Mono",monospace; font-size:15px;
-  letter-spacing:.1em; margin-bottom:4px}
+  letter-spacing:.1em}
 .start-card h1 b{color:var(--accent)}
 .start-card p{color:var(--muted); font-size:13px; margin-bottom:16px}
 .start-card label{display:block; font-family:"IBM Plex Mono",monospace;
@@ -215,7 +218,12 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
 
 <div id="start">
   <div class="start-card">
-    <h1>BOARD<b>ROOM</b></h1>
+    <div class="card-head">
+      <h1>BOARD<b>ROOM</b></h1>
+      <!-- Muss hier stehen: das Overlay deckt den Header-Link ab, und beim
+           ersten Aufruf ist ohne Einstellungen ohnehin nichts zu holen. -->
+      <a class="settings-link" href="/settings">⚙ EINSTELLUNGEN</a>
+    </div>
     <p>Sechs KI-Spezialisten. Ein Meeting. Dein Projekt auf dem Tisch.</p>
 
     <label for="project">PROJEKT</label>

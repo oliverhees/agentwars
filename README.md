@@ -108,15 +108,20 @@ Hinweise:
 
 ### .env ausfüllen – Checkliste
 
-- [ ] `BOARDROOM_PASSWORD` – **Pflicht**, sonst startet die App nicht
-- [ ] `GITHUB_TOKEN` – **Pflicht**, ohne GitHub kein Projekt
+**Diese gehören in die `.env` (bzw. in Coolify als Environment Variables), weil sie nicht im UI stehen:**
+
+- [ ] `BOARDROOM_PASSWORD` – **Pflicht**, sonst antwortet die App gar nicht
 - [ ] `REPO_ALLOWLIST` – **Pflicht für Repo-Analysen**, z. B. `github.com`
-- [ ] `CLAUDE_CODE_OAUTH_TOKEN` – per `claude setup-token` (empfohlen)
-- [ ] `ANTHROPIC_API_KEY` – nur als Fallback nötig
-- [ ] `OPENAI_API_KEY` + `OPENAI_MODEL` – Modellnamen im OpenAI-Dashboard prüfen
-- [ ] `HYAI_API_KEY` – dein hostyourai-Key (beginnt mit `hyai-`)
-- [ ] `HYAI_MODEL_*` – **wichtig:** exakte Modell-Slugs im HostYourAI Model Garden nachschauen und ggf. anpassen
-- [ ] `PLANE_*` – siehe nächster Abschnitt
+- [ ] `BOARDROOM_SECRET` – empfohlen, sonst loggt dich jeder Redeploy aus
+- [ ] `BOARDROOM_COOKIE_SECURE` – nur bei Cookie-Problemen (`0` erzwingt HTTP)
+- [ ] `PREFLIGHT_ON_START`, `PREFLIGHT_TIMEOUT` – nur wenn du den Vorabcheck anders willst
+- [ ] `CLAUDE_CODE_REVIEW_TOOLS` / `CLAUDE_CODE_BUILD_TOOLS` / `CLAUDE_CODE_TIMEOUT` – Toolrechte bleiben bewusst außerhalb des UI
+
+**Alles andere gehört nach `/settings`** – Keys, Modelle, Prompts, Plane, Coolify. Die `.env` kann sie als Startbelegung mitbringen, muss aber nicht.
+
+> `BOARDROOM_DB` im Container **nicht** setzen: das Dockerfile zeigt schon auf `/data/boardroom.db`, also aufs Volume. Ein relativer Pfad in der `.env` überschreibt das, und die Datenbank landet im Container – nach dem nächsten Redeploy wäre sie weg.
+>
+> Die `*_MODEL`-Variablen (`ANTHROPIC_MODEL`, `OPENAI_MODEL`, `HYAI_MODEL_*`) werden **nur beim allerersten Start** gelesen, um die Agenten-Tabelle zu befüllen. Danach kommen die Modelle aus der Datenbank – Änderungen dort bleiben wirkungslos, ändere sie unter `/settings`.
 
 ### Plane verbinden
 
