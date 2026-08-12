@@ -214,3 +214,17 @@ def test_verbrauch_laesst_sich_nach_projekt_filtern(angemeldet):
     daten = angemeldet.get(f"/api/usage?project_id={projekt['id']}").json()
     assert daten["project_id"] == projekt["id"]
     assert daten["meetings"] == []
+
+
+@pytest.mark.parametrize("pfad", ["/", "/settings", "/usage"])
+def test_seiten_werden_nicht_zwischengespeichert(angemeldet, pfad):
+    """Unter / liegen je nach Session zwei verschiedene Dokumente. Ohne
+    no-store zeigt der Browser nach dem Login die gecachte Anmeldeseite –
+    das sah aus, als fehle die Weiterleitung."""
+    assert angemeldet.get(pfad).headers["cache-control"] == "no-store"
+
+
+def test_auch_die_anmeldeseite_ist_unzwischenspeicherbar(client):
+    resp = client.get("/")
+    assert "ANMELDEN" in resp.text
+    assert resp.headers["cache-control"] == "no-store"

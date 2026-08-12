@@ -35,6 +35,19 @@ EMPTY_REPO_PACK = (
 )
 
 
+def page(name: str) -> FileResponse:
+    """HTML-Seite ohne Zwischenspeicher ausliefern.
+
+    Wichtig, weil unter `/` je nach Session zwei verschiedene Dokumente
+    liegen: Login oder Board. Ohne Cache-Control darf der Browser die
+    Antwort heuristisch cachen (Last-Modified ist gesetzt) – dann zeigt er
+    nach dem Anmelden die gespeicherte Login-Seite, statt neu zu laden.
+    Für den Nutzer sieht das so aus, als würde die Weiterleitung fehlen.
+    """
+    return FileResponse(os.path.join(STATIC, name),
+                        headers={"Cache-Control": "no-store"})
+
+
 def _cookie_secure(request: Request) -> bool:
     setting = env("BOARDROOM_COOKIE_SECURE", "auto").lower()
     if setting in {"1", "true", "yes"}:
@@ -105,7 +118,7 @@ async def require_session(request: Request, call_next):
     if auth.verify_token(request.cookies.get(auth.COOKIE_NAME)):
         return await call_next(request)
     if path == "/":
-        return FileResponse(os.path.join(STATIC, "login.html"))
+        return page("login.html")
     return JSONResponse({"error": "Nicht angemeldet."}, status_code=401)
 
 
@@ -145,12 +158,12 @@ async def healthz() -> JSONResponse:
 # ---------------------------------------------------------------- App
 @app.get("/")
 async def index() -> FileResponse:
-    return FileResponse(os.path.join(STATIC, "index.html"))
+    return page("index.html")
 
 
 @app.get("/settings")
 async def settings_page() -> FileResponse:
-    return FileResponse(os.path.join(STATIC, "settings.html"))
+    return page("settings.html")
 
 
 # ---------------------------------------------------------------- Einstellungen
@@ -279,7 +292,7 @@ async def preflight_check(deep: bool = True) -> JSONResponse:
 # ---------------------------------------------------------------- Verbrauch
 @app.get("/usage")
 async def usage_page() -> FileResponse:
-    return FileResponse(os.path.join(STATIC, "usage.html"))
+    return page("usage.html")
 
 
 @app.get("/api/usage")
