@@ -60,7 +60,7 @@ class GitHubClient:
     def _require(self) -> None:
         if not self.enabled:
             raise GitHubError(
-                "GITHUB_TOKEN ist nicht gesetzt – ohne GitHub kein Projekt.")
+                "Kein GitHub-Token hinterlegt – trag ihn unter /settings ein (Abschnitt GitHub).")
 
     async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
         self._require()

@@ -257,7 +257,7 @@ async def github_status() -> JSONResponse:
     """Login-Check plus die zuletzt bespielten Repos für die Auswahl."""
     if not github.enabled:
         return JSONResponse({"enabled": False,
-                             "error": "GITHUB_TOKEN ist nicht gesetzt."})
+                             "error": "Kein GitHub-Token hinterlegt – trag ihn unter /settings ein (Abschnitt GitHub)."})
     try:
         user = await github.me()
     except GitHubError as exc:
@@ -289,7 +289,7 @@ async def create_project(req: ProjectRequest) -> JSONResponse:
         return JSONResponse({"error": "Projektname fehlt."}, status_code=422)
     if not github.enabled:
         return JSONResponse(
-            {"error": "GITHUB_TOKEN ist nicht gesetzt – ohne GitHub kein Projekt."},
+            {"error": "Kein GitHub-Token hinterlegt – trag ihn unter /settings ein (Abschnitt GitHub)."},
             status_code=422)
 
     full_name = req.repo_full_name.strip()

@@ -39,7 +39,7 @@ def test_repo_namen_werden_slugifiziert(eingabe, erwartet):
 def test_ohne_token_ist_der_client_aus():
     client = gh_mod.GitHubClient()
     assert not client.enabled
-    with pytest.raises(GitHubError, match="GITHUB_TOKEN"):
+    with pytest.raises(GitHubError, match="Kein GitHub-Token"):
         client.clone_url("owner/repo")
 
 

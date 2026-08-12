@@ -293,7 +293,7 @@ async function boot(){
   connect();
   loadProjects();
   if (data.github) loadGithub();
-  else setGh("GITHUB_TOKEN ist nicht gesetzt – ohne GitHub kein Projekt.", true);
+  else setGh("Kein GitHub-Token hinterlegt – trag ihn unter /settings ein (Abschnitt GitHub).", true);
 }
 
 /* ---------------- Projekte + GitHub ---------------- */

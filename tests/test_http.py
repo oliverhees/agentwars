@@ -95,7 +95,7 @@ def test_projektliste_startet_leer(angemeldet):
 def test_ohne_github_kein_projekt(angemeldet):
     resp = angemeldet.post("/api/projects", json={"name": "Content Factory"})
     assert resp.status_code == 422
-    assert "GITHUB_TOKEN" in resp.json()["error"]
+    assert "/settings" in resp.json()["error"]
 
 
 def test_projekt_ohne_repo_wird_abgelehnt(angemeldet):
