@@ -178,6 +178,9 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
 #report{position:fixed; inset:0; background:rgba(10,11,13,.9);
   backdrop-filter:blur(4px); display:flex; align-items:center;
   justify-content:center; padding:16px; z-index:20}
+/* Muss sein: display:flex oben schlaegt das hidden-Attribut, sonst steht
+   das Fenster von Anfang an offen und laesst sich nicht schliessen. */
+#report[hidden]{display:none}
 .report-card{background:var(--panel); border:1px solid var(--line);
   border-radius:14px; width:100%; max-width:720px; max-height:85vh;
   display:flex; flex-direction:column; overflow:hidden}

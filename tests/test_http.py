@@ -228,3 +228,11 @@ def test_auch_die_anmeldeseite_ist_unzwischenspeicherbar(client):
     resp = client.get("/")
     assert "ANMELDEN" in resp.text
     assert resp.headers["cache-control"] == "no-store"
+
+
+def test_preflight_fenster_startet_geschlossen(angemeldet):
+    """display:flex auf #report schlägt das hidden-Attribut – ohne eigene
+    Regel steht das Fenster nach dem Anmelden offen und geht nicht zu."""
+    seite = angemeldet.get("/").text
+    assert '<div id="report" hidden>' in seite
+    assert "#report[hidden]{display:none}" in seite
