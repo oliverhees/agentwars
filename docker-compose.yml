@@ -23,7 +23,7 @@ services:
     volumes:
       # Projekte, Meetings und der komplette Verlauf liegen hier.
       # Ohne dieses Volume ist nach jedem Redeploy alles weg.
-      - boardroom-data:/data
+      - agentwars-data:/data
 
   # Optional: TencentDB Agent Memory (Team-Gedächtnis, MIT-Lizenz)
   # Setup & aktuelle Image-Namen: https://github.com/TencentCloud/TencentDB-Agent-Memory
@@ -31,4 +31,4 @@ services:
   # die HostYourAI-Agenten laufen dann automatisch durch das Gedächtnis.
 
 volumes:
-  boardroom-data:
+  agentwars-data:

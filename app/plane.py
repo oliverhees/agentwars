@@ -1,7 +1,7 @@
 """Plane-Integration: Roadmap-Findings werden zu Issues, Updates zu Kommentaren.
 
 Plane ist das Standard-Ziel, weil die Planungsdaten damit auf deiner eigenen
-Instanz bleiben. Jedes Boardroom-Projekt zeigt auf sein **eigenes**
+Instanz bleiben. Jedes AgentWars-Projekt zeigt auf sein **eigenes**
 Plane-Projekt – die globale Projekt-UUID in den Einstellungen ist nur noch
 der Rückfall für Projekte, die keine eigene haben.
 """
@@ -82,7 +82,7 @@ class PlaneClient:
 
     # ------------------------------------------------------------ Projekte
     async def projects(self) -> list[dict]:
-        """Für das Dropdown beim Anlegen eines Boardroom-Projekts."""
+        """Für das Dropdown beim Anlegen eines AgentWars-Projekts."""
         resp = await self._request("GET", f"{self.workspace_base}/projects/")
         if resp.status_code != 200:
             raise self._fail(resp, "Projektliste")

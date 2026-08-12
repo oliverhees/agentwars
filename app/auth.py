@@ -3,7 +3,7 @@
 Warum überhaupt: `/api/start` klont Repos und startet Claude Code mit
 Dateizugriff, und jedes Meeting kostet Tokens bzw. zieht auf dein Abo.
 Ein offener Endpoint wäre damit ein Remote-Code-Execution-Hebel auf deinem
-Coolify-Host. Deshalb ist der Boardroom fail-closed: ohne gesetztes
+Coolify-Host. Deshalb ist AgentWars fail-closed: ohne gesetztes
 Passwort antwortet die App gar nicht erst.
 
 Session-Cookie statt Basic-Auth, weil der Browser das Cookie automatisch
@@ -14,16 +14,19 @@ import hmac
 import secrets
 import time
 
-from .config import env
+from .config import env, env_any
 
-PASSWORD = env("BOARDROOM_PASSWORD")
-ALLOW_ANONYMOUS = env("BOARDROOM_ALLOW_ANONYMOUS") == "1"
-SESSION_TTL = int(env("BOARDROOM_SESSION_HOURS", "168")) * 3600
-COOKIE_NAME = "boardroom_session"
+PASSWORD = env_any("AGENTWARS_PASSWORD", "BOARDROOM_PASSWORD")
+ALLOW_ANONYMOUS = env_any("AGENTWARS_ALLOW_ANONYMOUS",
+                          "BOARDROOM_ALLOW_ANONYMOUS") == "1"
+SESSION_TTL = int(env_any("AGENTWARS_SESSION_HOURS",
+                          "BOARDROOM_SESSION_HOURS", default="168")) * 3600
+COOKIE_NAME = "agentwars_session"
 
 # Ohne festen Secret werden Sessions bei jedem Neustart ungültig – für einen
 # Ein-Container-Dienst völlig ok, aber setzbar, damit Redeploys nicht ausloggen.
-_SECRET = env("BOARDROOM_SECRET").encode() or secrets.token_bytes(32)
+_SECRET = (env_any("AGENTWARS_SECRET", "BOARDROOM_SECRET").encode()
+           or secrets.token_bytes(32))
 
 # Brute-Force-Bremse: Fehlversuche je Client-IP im Zeitfenster.
 LOCKOUT_AFTER = 8

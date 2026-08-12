@@ -1,6 +1,6 @@
 """Coolify-Anbindung: der Realitätscheck nach der Umsetzung.
 
-Bewusst die REST-API und nicht MCP: der Boardroom ist selbst ein Server,
+Bewusst die REST-API und nicht MCP: der AgentWars ist selbst ein Server,
 der HTTP sprechen kann. Ein MCP-Server dazwischen wäre ein zusätzlicher
 Prozess, eine zusätzliche Auth-Schicht und ein zusätzlicher Ausfallpunkt
 für drei Endpunkte, die wir direkt aufrufen können.

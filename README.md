@@ -1,4 +1,6 @@
-# Boardroom – deine KI-Agentur
+# AgentWars – deine KI-Agentur
+
+> Hieß früher *Boardroom*. Alte `BOARDROOM_*`-Umgebungsvariablen und eine vorhandene `boardroom.db` funktionieren weiter – ein Update sperrt niemanden aus.
 
 Sechs KI-Spezialisten nehmen sich dein Projekt live in einem Team-Chat vor, du sitzt mit am Tisch, und die Ergebnisse landen automatisch als Tickets in Plane oder GitHub.
 
@@ -27,9 +29,9 @@ Unter **`/settings`** wird das System konfiguriert, ohne die `.env` anzufassen:
 - **Phasenanweisungen** für Einzelbeiträge, Kreuzverhör und Synthese. Das JSON-Format für die Tickets hängt das System selbst an – das kannst du nicht kaputt machen
 - **@Mention-Regeln**, die Handles setzt das System selbst ein
 - **Zugänge:** alle API-Keys, Base-URLs und der Memory-Proxy
-- **Plane & Coolify:** URL und Token – mit Verbindungstest. Das konkrete Plane-Projekt und die Coolify-Anwendung hängen am Boardroom-Projekt, nicht global
+- **Plane & Coolify:** URL und Token – mit Verbindungstest. Das konkrete Plane-Projekt und die Coolify-Anwendung hängen am AgentWars-Projekt, nicht global
 - **Limits:** Kontextbudget, Tokenbudgets, Diskussionsrunden
-- **Modell-Auswahl statt Tippen:** Sobald ein API-Key hinterlegt ist, holt der Boardroom die Modellliste beim Anbieter selbst (OpenAI, Anthropic, HostYourAI) und bietet sie im Agenten als Dropdown an. Ein falsch geschriebener Modellname fällt so gar nicht erst auf. Freitext bleibt über „＋ Eigenes Modell eintippen" möglich, weil jede Liste veralten kann.
+- **Modell-Auswahl statt Tippen:** Sobald ein API-Key hinterlegt ist, holt AgentWars die Modellliste beim Anbieter selbst (OpenAI, Anthropic, HostYourAI) und bietet sie im Agenten als Dropdown an. Ein falsch geschriebener Modellname fällt so gar nicht erst auf. Freitext bleibt über „＋ Eigenes Modell eintippen" möglich, weil jede Liste veralten kann.
 - **„Team prüfen & Modelle neu laden"** aktualisiert die Listen und fragt anschließend jeden Agenten wirklich an
 
 Die Reihenfolge der Wahrheit ist **Datenbank → `.env` → Default**. Bestehende Deployments laufen also unverändert weiter, bis du im UI etwas überschreibst. Geheimnisse verlassen den Server nie im Klartext: die API meldet nur „gesetzt: ja/nein", ein leeres Feld heißt „unverändert lassen".
@@ -48,13 +50,13 @@ Das Repo ist der Anker und wird nachträglich nicht getauscht. Plane-Projekt und
 
 **Leeres Repo ist kein Fehler, sondern ein anderer Auftrag:** Enthält das Repo Code, *prüft* das Board. Ist es leer, *entwirft* es – dieselben Rollen, anderer Auftrag (siehe „Lage" unter `/settings`).
 
-Projekte, Meetings und der komplette Verlauf liegen in SQLite (`BOARDROOM_DB`, im Container auf dem Volume `/data`). Ein Neustart verliert nichts mehr – ältere Meetings lassen sich über `/api/projects/{id}/meetings` und `/api/meetings/{id}/events` nachlesen.
+Projekte, Meetings und der komplette Verlauf liegen in SQLite (`AGENTWARS_DB`, im Container auf dem Volume `/data`). Ein Neustart verliert nichts mehr – ältere Meetings lassen sich über `/api/projects/{id}/meetings` und `/api/meetings/{id}/events` nachlesen.
 
 ## Tickets: Plane oder GitHub Issues
 
 `ticket_target` unter `/settings` bestimmt, wohin die Roadmap des Chairmans wandert:
 
-- **`plane`** (Standard) – die Planungsdaten bleiben auf deiner Instanz, also DSGVO-konform. Jedes Boardroom-Projekt schreibt in sein eigenes Plane-Projekt.
+- **`plane`** (Standard) – die Planungsdaten bleiben auf deiner Instanz, also DSGVO-konform. Jedes AgentWars-Projekt schreibt in sein eigenes Plane-Projekt.
 - **`github`** – enger am Code: ein `Fixes #12` im PR schließt das Ticket von selbst. Dafür liegen die Planungsdaten bei GitHub. Prioritäten werden zu `prio:*`-Labels.
 - **`both`** – Plane führt, GitHub ist die Arbeitsansicht.
 - **`off`** – nichts anlegen.
@@ -88,13 +90,13 @@ docker compose up --build
 
 ### Zugang
 
-Der Boardroom ist **fail-closed**: Ohne `BOARDROOM_PASSWORD` in der `.env` antwortet die App auf jede Anfrage mit `503` und einem Hinweis. Das ist Absicht – der Dienst klont Repos und startet Claude Code mit Dateizugriff, offen im Netz wäre das ein Fernzugriff auf deinen Host.
+AgentWars ist **fail-closed**: Ohne `AGENTWARS_PASSWORD` in der `.env` antwortet die App auf jede Anfrage mit `503` und einem Hinweis. Das ist Absicht – der Dienst klont Repos und startet Claude Code mit Dateizugriff, offen im Netz wäre das ein Fernzugriff auf deinen Host.
 
-- Login-Seite mit Passwort, danach ein signiertes HttpOnly-Cookie (7 Tage, per `BOARDROOM_SESSION_HOURS` einstellbar)
+- Login-Seite mit Passwort, danach ein signiertes HttpOnly-Cookie (7 Tage, per `AGENTWARS_SESSION_HOURS` einstellbar)
 - Das Cookie deckt auch den WebSocket ab
 - 8 Fehlversuche pro IP in 5 Minuten → Sperre
-- `BOARDROOM_SECRET` setzen, wenn ein Redeploy dich nicht ausloggen soll
-- Nur wenn die App nachweislich ausschließlich lokal erreichbar ist: `BOARDROOM_ALLOW_ANONYMOUS=1`
+- `AGENTWARS_SECRET` setzen, wenn ein Redeploy dich nicht ausloggen soll
+- Nur wenn die App nachweislich ausschließlich lokal erreichbar ist: `AGENTWARS_ALLOW_ANONYMOUS=1`
 
 ### Erlaubte Repo-Quellen
 
@@ -157,7 +159,7 @@ Die CLI ist **bereits installiert** – der Container bringt Node 20 und
 > der läuft über die Token-Abrechnung statt über dein Abo. Die Diagnose erkennt
 > das und sagt es dir.
 
-**Warum es kein Terminal im Boardroom gibt:** Eine Shell im Web-UI wäre
+**Warum es kein Terminal in AgentWars gibt:** Eine Shell im Web-UI wäre
 beliebige Befehlsausführung auf deinem Coolify-Host, abgesichert durch ein
 einziges Passwort. Wer die Session bekommt, bekommt den Server. Coolify hat
 für genau diesen Zweck bereits ein Terminal je Ressource – dort gehört es hin.
@@ -170,7 +172,7 @@ las man nur „Token fehlt" und wusste nicht, ob die CLI überhaupt da ist.
 
 Hinweise:
 - Der Token gilt ~1 Jahr und zieht auf deine Abo-Rate-Limits ein
-- `ANTHROPIC_API_KEY` leer lassen, wenn alles über die Subscription laufen soll; falls gesetzt, filtert der Boardroom ihn für den Claude-Code-Prozess automatisch raus (Print-Modus würde sonst den API-Key bevorzugen)
+- `ANTHROPIC_API_KEY` leer lassen, wenn alles über die Subscription laufen soll; falls gesetzt, filtert AgentWars ihn für den Claude-Code-Prozess automatisch raus (Print-Modus würde sonst den API-Key bevorzugen)
 - Fällt Claude Code aus, greift automatisch der API-Fallback (sofern Key gesetzt)
 - Toolrechte kommen als **Profil pro Aufruf**: Reviews laufen mit `CLAUDE_CODE_REVIEW_TOOLS` (`Read,Grep,Glob,LS,NotebookRead`) – lesen und suchen, nichts ändern, nichts ausführen. Was nicht in der Liste steht, lehnt Claude Code headless ab. Das Profil `build` (mit `Edit,Write,Bash`) ist für die spätere Umsetzungsphase vorbereitet und wird heute von keinem Codepfad angefordert.
 - Im Chat siehst du live, welche Datei Claude gerade liest (`⌁ Claude: Read app/main.py`)
@@ -179,16 +181,16 @@ Hinweise:
 
 **Diese gehören in die `.env` (bzw. in Coolify als Environment Variables), weil sie nicht im UI stehen:**
 
-- [ ] `BOARDROOM_PASSWORD` – **Pflicht**, sonst antwortet die App gar nicht
+- [ ] `AGENTWARS_PASSWORD` – **Pflicht**, sonst antwortet die App gar nicht
 - [ ] `REPO_ALLOWLIST` – **Pflicht für Repo-Analysen**, z. B. `github.com`
-- [ ] `BOARDROOM_SECRET` – empfohlen, sonst loggt dich jeder Redeploy aus
-- [ ] `BOARDROOM_COOKIE_SECURE` – nur bei Cookie-Problemen (`0` erzwingt HTTP)
+- [ ] `AGENTWARS_SECRET` – empfohlen, sonst loggt dich jeder Redeploy aus
+- [ ] `AGENTWARS_COOKIE_SECURE` – nur bei Cookie-Problemen (`0` erzwingt HTTP)
 - [ ] `PREFLIGHT_ON_START`, `PREFLIGHT_TIMEOUT` – nur wenn du den Vorabcheck anders willst
 - [ ] `CLAUDE_CODE_REVIEW_TOOLS` / `CLAUDE_CODE_BUILD_TOOLS` / `CLAUDE_CODE_TIMEOUT` – Toolrechte bleiben bewusst außerhalb des UI
 
 **Alles andere gehört nach `/settings`** – Keys, Modelle, Prompts, Plane, Coolify. Die `.env` kann sie als Startbelegung mitbringen, muss aber nicht.
 
-> `BOARDROOM_DB` im Container **nicht** setzen: das Dockerfile zeigt schon auf `/data/boardroom.db`, also aufs Volume. Ein relativer Pfad in der `.env` überschreibt das, und die Datenbank landet im Container – nach dem nächsten Redeploy wäre sie weg.
+> `AGENTWARS_DB` im Container **nicht** setzen: das Dockerfile zeigt schon auf `/data/agentwars.db`, also aufs Volume. Ein relativer Pfad in der `.env` überschreibt das, und die Datenbank landet im Container – nach dem nächsten Redeploy wäre sie weg.
 >
 > Die `*_MODEL`-Variablen (`ANTHROPIC_MODEL`, `OPENAI_MODEL`, `HYAI_MODEL_*`) werden **nur beim allerersten Start** gelesen, um die Agenten-Tabelle zu befüllen. Danach kommen die Modelle aus der Datenbank – Änderungen dort bleiben wirkungslos, ändere sie unter `/settings`.
 
@@ -215,12 +217,12 @@ Ohne Plane-Konfiguration läuft alles trotzdem – der Sync wird dann einfach ü
 
 Dann läuft der Container, aber Traefik hat keinen passenden Router – ein reines Routing-Problem, kein App-Fehler. Zwei Stellen:
 
-1. **Die Domain muss am Service `boardroom` hängen**, nicht an der Ressource allgemein. In Coolify: Ressource → Tab **Domains** → Zeile `boardroom`.
+1. **Die Domain muss am Service `boardroom` hängen**  (der Compose-Dienst heißt weiterhin so – ihn umzubenennen würde deine Domain-Zuordnung in Coolify zerreißen), nicht an der Ressource allgemein. In Coolify: Ressource → Tab **Domains** → Zeile `boardroom`.
 2. **Der Port gehört in die Domain:** `https://board.deine-domain.de:8000`. Ohne den Port-Suffix muss Coolify raten. Die `SERVICE_FQDN_BOARDROOM_8000`-Variable in der Compose-Datei sagt es zusätzlich ausdrücklich.
 
 Prüfen lässt sich das ohne Domain: In Coolify das Terminal der Ressource öffnen und `curl -fsS http://127.0.0.1:8000/healthz` laufen lassen. Kommt `{"ok":true,…}`, ist die App gesund und es ist definitiv Traefik.
 
-> `BOARDROOM_PASSWORD` und `BOARDROOM_SECRET` gehören in Coolify als **geheime** Environment Variables, nicht ins Repo. Gleiches gilt für `CLAUDE_CODE_OAUTH_TOKEN` – der Token gewährt vollen Zugriff auf deine Subscription.
+> `AGENTWARS_PASSWORD` und `AGENTWARS_SECRET` gehören in Coolify als **geheime** Environment Variables, nicht ins Repo. Gleiches gilt für `CLAUDE_CODE_OAUTH_TOKEN` – der Token gewährt vollen Zugriff auf deine Subscription.
 
 ## Tests
 
@@ -235,7 +237,7 @@ Abgedeckt sind die Stellen, an denen ein Fehler teuer wird: Repo-URL-Validierung
 
 Base-URL und API-Token unter `/settings` hinterlegen (Coolify → Keys & Tokens → API tokens). Die **Anwendung wird pro Projekt** gewählt – eine globale Standard-Anwendung gibt es bewusst nicht, jedes Projekt deployt sich selbst. `POST /api/coolify/deploy` mit `project_id` stößt das Deployment der zugeordneten Anwendung an.
 
-Bewusst die REST-API und nicht MCP: der Boardroom ist selbst ein Server, der HTTP spricht. Ein MCP-Server dazwischen wäre ein zusätzlicher Prozess, eine zusätzliche Auth-Schicht und ein zusätzlicher Ausfallpunkt für drei Endpunkte, die wir direkt aufrufen können.
+Bewusst die REST-API und nicht MCP: der AgentWars ist selbst ein Server, der HTTP spricht. Ein MCP-Server dazwischen wäre ein zusätzlicher Prozess, eine zusätzliche Auth-Schicht und ein zusätzlicher Ausfallpunkt für drei Endpunkte, die wir direkt aufrufen können.
 
 ## TencentDB Agent Memory (optional, empfohlen ab v1.1)
 

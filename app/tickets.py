@@ -3,7 +3,7 @@
 Ein Ziel, zwei mögliche Systeme – die Pipeline muss davon nichts wissen:
 
 * **Plane** (Standard): Planungsdaten bleiben auf deiner Instanz, also DSGVO-
-  konform. Jedes Boardroom-Projekt zeigt auf sein eigenes Plane-Projekt.
+  konform. Jedes AgentWars-Projekt zeigt auf sein eigenes Plane-Projekt.
 * **GitHub Issues**: enger am Code, `Fixes #12` in einem PR schließt das
   Ticket von selbst. Dafür liegen die Planungsdaten bei GitHub.
 

@@ -26,7 +26,7 @@ def test_ohne_passwort_verweigert_die_app_den_dienst(monkeypatch):
     monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", False)
     resp = TestClient(main.app).get("/api/team")
     assert resp.status_code == 503
-    assert "BOARDROOM_PASSWORD" in resp.json()["error"]
+    assert "AGENTWARS_PASSWORD" in resp.json()["error"]
 
 
 @pytest.mark.parametrize("path", ["/api/team", "/api/preflight",

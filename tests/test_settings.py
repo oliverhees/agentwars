@@ -288,3 +288,35 @@ def test_ein_kaputter_provider_reisst_die_anderen_nicht_mit(monkeypatch):
     katalog = _katalog()
     assert "Netz weg" in katalog["openai"]["error"]
     assert katalog["claude-code"]["models"]
+
+
+# ---------------------------------------------------------------- Umbenennung
+def test_alte_env_namen_gelten_weiter(monkeypatch):
+    """Das System hieß Boardroom. Ein Update darf niemanden aussperren."""
+    from app.config import env_any
+    monkeypatch.delenv("AGENTWARS_PASSWORD", raising=False)
+    monkeypatch.setenv("BOARDROOM_PASSWORD", "alt")
+    assert env_any("AGENTWARS_PASSWORD", "BOARDROOM_PASSWORD") == "alt"
+
+
+def test_neuer_name_schlaegt_den_alten(monkeypatch):
+    from app.config import env_any
+    monkeypatch.setenv("BOARDROOM_PASSWORD", "alt")
+    monkeypatch.setenv("AGENTWARS_PASSWORD", "neu")
+    assert env_any("AGENTWARS_PASSWORD", "BOARDROOM_PASSWORD") == "neu"
+
+
+def test_vorhandene_alte_datenbank_wird_weiterbenutzt(tmp_path, monkeypatch):
+    """Wer schon Projekte hat, soll sie nach dem Update wiederfinden."""
+    from app import store
+    alt = tmp_path / "boardroom.db"
+    alt.touch()
+    monkeypatch.setenv("AGENTWARS_DB", str(tmp_path / "agentwars.db"))
+    assert store._resolve_db_path() == str(alt)
+
+
+def test_ohne_alte_datenbank_gilt_der_neue_pfad(tmp_path, monkeypatch):
+    from app import store
+    neu = tmp_path / "agentwars.db"
+    monkeypatch.setenv("AGENTWARS_DB", str(neu))
+    assert store._resolve_db_path() == str(neu)

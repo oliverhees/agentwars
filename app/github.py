@@ -1,7 +1,7 @@
 """GitHub-Anbindung: das Repo ist der Anker jedes Projekts.
 
-Regel im Boardroom: Ein Projekt ohne Repo gibt es nicht. Ist eins da, wird
-es analysiert. Ist keins da, legt der Boardroom es an und das Board fängt
+Regel in AgentWars: Ein Projekt ohne Repo gibt es nicht. Ist eins da, wird
+es analysiert. Ist keins da, legt AgentWars es an und das Board fängt
 bei "leeres Repo, worum geht's?" an.
 
 Nur ein Personal Access Token nötig (`GITHUB_TOKEN`, Scope `repo`).

@@ -16,6 +16,19 @@ def env(key: str, default: str = "") -> str:
     return os.getenv(key, default).strip()
 
 
+def env_any(*keys: str, default: str = "") -> str:
+    """Erster gesetzter Treffer gewinnt.
+
+    Das System hiess frueher Boardroom. Die alten BOARDROOM_*-Variablen
+    bleiben gueltig, damit ein Update kein laufendes Deployment aussperrt.
+    """
+    for key in keys:
+        value = os.getenv(key, "").strip()
+        if value:
+            return value
+    return default
+
+
 # ---------------------------------------------------------------- Provider
 # prefix  = was LiteLLM vor den Modellnamen braucht
 # key     = Settings-Schlüssel des API-Keys

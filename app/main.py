@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from . import (auth, claude_code, models, preflight, settings, store,
                usage)
 from .bus import bus
-from .config import PHASES, PROVIDERS, build_team, env
+from .config import PHASES, PROVIDERS, build_team, env_any
 from .coolify import CoolifyError, coolify
 from .github import GitHubError, github, slugify_repo_name, valid_full_name
 from .ingest import cleanup, clone_repo, pack_project
@@ -18,16 +18,17 @@ from .pipeline import meeting
 from .plane import PlaneError, plane
 from .security import RepoUrlError, redact, validate_repo_url
 
-app = FastAPI(title="KI-Agentur Boardroom")
+app = FastAPI(title="AgentWars")
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 
 # Diese Pfade müssen ohne Session erreichbar sein, sonst kommt niemand rein.
 PUBLIC_PATHS = {"/api/login", "/healthz"}
 
 MISCONFIG_HINT = (
-    "Boardroom ist nicht konfiguriert: BOARDROOM_PASSWORD fehlt. "
-    "Setz ein Passwort in der .env – oder BOARDROOM_ALLOW_ANONYMOUS=1, "
-    "wenn die App nachweislich nur lokal erreichbar ist."
+    "AgentWars ist nicht konfiguriert: AGENTWARS_PASSWORD fehlt. "
+    "Setz ein Passwort in der .env – oder AGENTWARS_ALLOW_ANONYMOUS=1, "
+    "wenn die App nachweislich nur lokal erreichbar ist. "
+    "(Die alten BOARDROOM_*-Namen gelten weiterhin.)"
 )
 EMPTY_REPO_PACK = (
     "(Das Repository ist leer – es gibt noch keinen Code. Das Board startet "
@@ -50,7 +51,8 @@ def page(name: str) -> FileResponse:
 
 
 def _cookie_secure(request: Request) -> bool:
-    setting = env("BOARDROOM_COOKIE_SECURE", "auto").lower()
+    setting = env_any("AGENTWARS_COOKIE_SECURE",
+                  "BOARDROOM_COOKIE_SECURE", default="auto").lower()
     if setting in {"1", "true", "yes"}:
         return True
     if setting in {"0", "false", "no"}:
@@ -423,7 +425,7 @@ async def update_project(project_id: str, req: ProjectLinksRequest) -> JSONRespo
 # ---------------------------------------------------------------- Plane
 @app.get("/api/plane/projects")
 async def plane_projects() -> JSONResponse:
-    """Für das Dropdown beim Anlegen eines Boardroom-Projekts."""
+    """Für das Dropdown beim Anlegen eines AgentWars-Projekts."""
     if not plane.configured:
         return JSONResponse({"configured": False, "projects": [],
                              "error": "Plane ist nicht konfiguriert "

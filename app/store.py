@@ -15,9 +15,23 @@ import sqlite3
 import time
 import uuid
 
-from .config import env
+from .config import env_any
 
-DB_PATH = env("BOARDROOM_DB", "data/boardroom.db")
+def _resolve_db_path() -> str:
+    """Neuer Name, alte Datei.
+
+    Das System hiess frueher AgentWars. Wer schon Projekte angelegt hat, soll
+    sie nach dem Update wiederfinden – gibt es die neue Datei noch nicht, aber
+    daneben eine boardroom.db, wird die weiterbenutzt.
+    """
+    pfad = env_any("AGENTWARS_DB", "BOARDROOM_DB", default="data/agentwars.db")
+    if os.path.exists(pfad):
+        return pfad
+    alt = os.path.join(os.path.dirname(pfad) or ".", "boardroom.db")
+    return alt if os.path.exists(alt) else pfad
+
+
+DB_PATH = _resolve_db_path()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (

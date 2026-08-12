@@ -12,7 +12,7 @@ COPY app ./app
 # Claude-Code-CLI, damit Onboarding und Trust-Entscheidungen einen Redeploy
 # überleben statt jedes Mal neu abzulaufen.
 RUN mkdir -p /data/claude
-ENV BOARDROOM_DB=/data/boardroom.db \
+ENV AGENTWARS_DB=/data/agentwars.db \
     CLAUDE_CONFIG_DIR=/data/claude
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

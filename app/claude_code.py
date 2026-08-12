@@ -20,6 +20,7 @@ einen gesetzten API-Key sonst der Subscription vorzieht.
 import asyncio
 import json
 import os
+import re
 import shutil
 
 from . import settings
@@ -46,20 +47,57 @@ def available() -> bool:
     return shutil.which(CLAUDE_BIN) is not None
 
 
+# Variablen, die Claude Code umleiten oder umkonfigurieren. Der Subprozess
+# erbt die komplette Container-Umgebung – steht dort z. B. ANTHROPIC_BASE_URL
+# (etwa auf den HostYourAI-Router), schickt die CLI den Subscription-Token an
+# den falschen Host und bekommt „401 Invalid bearer token" zurück, obwohl der
+# Token stimmt. Deshalb räumen wir vor jedem Aufruf auf.
+STOERENDE_ENV = (
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_API_URL", "ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_CUSTOM_HEADERS",
+    "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+    "AWS_BEARER_TOKEN_BEDROCK",
+)
+
+
+def clean_token(raw: str) -> str:
+    """Alle Leerzeichen und Zeilenumbrüche entfernen.
+
+    Beim Kopieren aus einem Terminal bricht der Token gern um. Ein einziges
+    eingeschlepptes \\n reicht für ein 401 – und man sieht es dem Feld nicht an.
+    """
+    return re.sub(r"\s+", "", raw or "")
+
+
+def credentials_present() -> bool:
+    """Hat sich jemand interaktiv in der CLI angemeldet?
+
+    Dann liegen die Zugangsdaten im Konfigverzeichnis und es braucht gar
+    keinen Token – das ist der Ausweg, wenn `setup-token` zickt.
+    """
+    return any(os.path.exists(os.path.join(CONFIG_DIR, name))
+               for name in (".credentials.json", "credentials.json"))
+
+
 def _subprocess_env() -> dict:
     e = os.environ.copy()
-    e.pop("ANTHROPIC_API_KEY", None)  # Subscription erzwingen
-    # Token kann aus den Einstellungen kommen statt aus der Prozess-Umgebung.
-    oauth = settings.get("claude_code_oauth_token")
+    for name in STOERENDE_ENV:
+        e.pop(name, None)
+    oauth = clean_token(settings.get("claude_code_oauth_token"))
     if oauth:
         e["CLAUDE_CODE_OAUTH_TOKEN"] = oauth
-    # Die CLI legt Zustand ab (Onboarding, Trust-Entscheidungen). Ohne
-    # beschreibbares Verzeichnis bricht sie ab; auf dem Volume überlebt der
-    # Zustand außerdem den nächsten Redeploy.
-    e.setdefault("CLAUDE_CONFIG_DIR", CONFIG_DIR)
+    else:
+        # Ohne Token zählt die interaktive Anmeldung im Konfigverzeichnis.
+        e.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+    # Die CLI legt Zustand ab (Anmeldung, Onboarding, Trust-Entscheidungen).
+    # Ohne beschreibbares Verzeichnis bricht sie ab; auf dem Volume überlebt
+    # der Zustand außerdem den nächsten Redeploy.
+    e["CLAUDE_CONFIG_DIR"] = CONFIG_DIR
     e.setdefault("HOME", os.path.dirname(CONFIG_DIR) or "/tmp")
     try:
-        os.makedirs(e["CLAUDE_CONFIG_DIR"], exist_ok=True)
+        os.makedirs(CONFIG_DIR, exist_ok=True)
     except OSError:
         pass
     return e
@@ -140,18 +178,29 @@ async def diagnose(probe: bool = False) -> dict:
                    "version": ""}
 
     aus_db = bool(settings._db_values().get("claude_code_oauth_token"))
-    wert = settings.get("claude_code_oauth_token")
-    if not wert:
+    quelle = "Einstellungen" if aus_db else ".env"
+    roh = settings.get("claude_code_oauth_token")
+    wert = clean_token(roh)
+    umbruch = bool(roh) and wert != roh.strip()
+
+    if not wert and credentials_present():
+        token = {"ok": True, "source": f"Anmeldung in {CONFIG_DIR}",
+                 "detail": "Interaktiv angemeldet – kein Token nötig."}
+    elif not wert:
         token = {"ok": False, "detail": "Nicht hinterlegt.", "source": ""}
     elif not wert.startswith(TOKEN_PREFIX):
         # Häufigster Fehler: API-Key statt Subscription-Token eingetragen.
-        token = {"ok": False, "source": "Einstellungen" if aus_db else ".env",
+        token = {"ok": False, "source": quelle,
                  "detail": f"Beginnt nicht mit '{TOKEN_PREFIX}' – das sieht "
                            "nach einem API-Key aus, nicht nach dem Token aus "
                            "'claude setup-token'."}
     else:
-        token = {"ok": True, "source": "Einstellungen" if aus_db else ".env",
-                 "detail": f"Hinterlegt ({wert[:14]}… , {len(wert)} Zeichen)."}
+        hinweis = (" Achtung: enthielt Zeilenumbrüche oder Leerzeichen, "
+                   "die entfernt wurden – bitte sauber neu einfügen."
+                   if umbruch else "")
+        token = {"ok": True, "source": quelle,
+                 "detail": f"Hinterlegt ({wert[:14]}…{wert[-4:]}, "
+                           f"{len(wert)} Zeichen).{hinweis}"}
 
     verbindung = {"ok": False, "detail": "Nicht geprüft."}
     if not probe:

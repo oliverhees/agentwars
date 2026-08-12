@@ -13,6 +13,7 @@ Geheimnisse (Tokens, Keys) verlassen den Server nie im Klartext – die API
 liefert nur "gesetzt: ja/nein" zurück.
 """
 import asyncio
+import re
 import threading
 
 from . import store
@@ -75,7 +76,7 @@ SETTINGS_SPEC = [
           "text", "", "Der Teil aus der URL: plane.dev/DEIN-SLUG/…"),
     _spec("plane_project_id", "PLANE_PROJECT_ID", "Rückfall-Projekt (UUID)",
           "Plane", "text", "",
-          "Wird nur benutzt, wenn ein Boardroom-Projekt kein eigenes "
+          "Wird nur benutzt, wenn ein AgentWars-Projekt kein eigenes "
           "Plane-Projekt hat. Normalerweise leer lassen."),
 
     # ---- Coolify
@@ -131,6 +132,10 @@ SETTINGS_SPEC = [
 
 BY_KEY = {entry["key"]: entry for entry in SETTINGS_SPEC}
 SECRET_KEYS = {e["key"] for e in SETTINGS_SPEC if e["kind"] == SECRET}
+# Werte, in denen ein Leerzeichen nie richtig sein kann.
+WHITESPACE_FREI = {"claude_code_oauth_token", "anthropic_api_key",
+                   "openai_api_key", "hyai_api_key", "github_token",
+                   "plane_api_key", "coolify_token"}
 CLEAR = "__CLEAR__"   # ausdrückliches Leeren eines Geheimnisses
 
 _cache: dict[str, str] = {}
@@ -188,6 +193,10 @@ def set_many(values: dict[str, str]) -> None:
             continue
         if not value.strip() and key in SECRET_KEYS:
             continue  # Geheimnis nicht angefasst
+        if key in WHITESPACE_FREI:
+            # Aus dem Terminal kopierte Tokens bringen gern Umbrüche mit;
+            # ein einziges \n reicht für ein 401.
+            value = re.sub(r"\s+", "", value)
         conn.execute(
             "INSERT INTO settings (key, value) VALUES (?, ?)"
             " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
