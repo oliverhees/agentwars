@@ -102,6 +102,64 @@ def _extract_tool_uses(event: dict) -> list[str]:
     return uses
 
 
+# Der Subscription-Token aus `claude setup-token`. Ein API-Key beginnt mit
+# sk-ant-api… und funktioniert hier NICHT – das ist die häufigste Verwechslung.
+TOKEN_PREFIX = "sk-ant-oat"
+
+
+async def diagnose(probe: bool = False) -> dict:
+    """Alle drei Stufen einzeln, statt bei der ersten Lücke abzubrechen.
+
+    Sonst liest man 'Token fehlt' und weiß nicht, ob die CLI überhaupt da ist.
+    """
+    pfad = shutil.which(CLAUDE_BIN)
+    cli = {"ok": bool(pfad), "detail": pfad or f"'{CLAUDE_BIN}' nicht im PATH.",
+           "version": ""}
+    if pfad:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                CLAUDE_BIN, "--version",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=20)
+            cli["version"] = out.decode(errors="replace").strip()
+            cli["ok"] = proc.returncode == 0
+            if not cli["ok"]:
+                cli["detail"] = f"CLI beendet sich mit Code {proc.returncode}."
+        except Exception as exc:
+            cli = {"ok": False, "detail": f"CLI nicht startbar ({exc}).",
+                   "version": ""}
+
+    aus_db = bool(settings._db_values().get("claude_code_oauth_token"))
+    wert = settings.get("claude_code_oauth_token")
+    if not wert:
+        token = {"ok": False, "detail": "Nicht hinterlegt.", "source": ""}
+    elif not wert.startswith(TOKEN_PREFIX):
+        # Häufigster Fehler: API-Key statt Subscription-Token eingetragen.
+        token = {"ok": False, "source": "Einstellungen" if aus_db else ".env",
+                 "detail": f"Beginnt nicht mit '{TOKEN_PREFIX}' – das sieht "
+                           "nach einem API-Key aus, nicht nach dem Token aus "
+                           "'claude setup-token'."}
+    else:
+        token = {"ok": True, "source": "Einstellungen" if aus_db else ".env",
+                 "detail": f"Hinterlegt ({wert[:14]}… , {len(wert)} Zeichen)."}
+
+    verbindung = {"ok": False, "detail": "Nicht geprüft."}
+    if not probe:
+        verbindung["detail"] = "Auf Knopfdruck prüfbar."
+    elif not (cli["ok"] and token["ok"]):
+        verbindung["detail"] = "Übersprungen – erst CLI und Token in Ordnung."
+    else:
+        try:
+            ok, detail = await ping()
+        except Exception as exc:
+            ok, detail = False, str(exc)[:300]
+        verbindung = {"ok": ok, "detail": detail}
+
+    return {"cli": cli, "token": token, "connection": verbindung,
+            "ready": cli["ok"] and token["ok"]
+            and (verbindung["ok"] or not probe)}
+
+
 async def ping(timeout: int = 90) -> tuple[bool, str]:
     """Echter Verbindungstest: ein Mini-Call über die Subscription.
 

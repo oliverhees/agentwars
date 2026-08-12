@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import auth, preflight, settings, store, usage
+from . import auth, claude_code, preflight, settings, store, usage
 from .bus import bus
 from .config import PHASES, PROVIDERS, build_team, env
 from .coolify import CoolifyError, coolify
@@ -287,6 +287,16 @@ async def preflight_check(deep: bool = True) -> JSONResponse:
     deep=true macht bei Claude Code einen echten Mini-Call, der Auth und
     Erreichbarkeit belegt. deep=false prüft nur, ob die CLI da ist."""
     return JSONResponse(await preflight.check(deep))
+
+
+@app.get("/api/claude-code")
+async def claude_code_status(probe: bool = False) -> JSONResponse:
+    """Getrennte Diagnose für CLI, Token und Verbindung.
+
+    'Token fehlt' allein sagt nicht, ob die CLI überhaupt installiert ist –
+    hier steht jede Stufe für sich.
+    """
+    return JSONResponse(await claude_code.diagnose(probe))
 
 
 # ---------------------------------------------------------------- Verbrauch

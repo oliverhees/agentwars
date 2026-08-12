@@ -44,6 +44,8 @@ input,textarea,select{width:100%;background:var(--panel2);
 textarea{min-height:120px;resize:vertical;font-size:14px}
 input:focus,textarea:focus,select:focus{border-color:var(--accent)}
 .help{font-size:12px;color:var(--muted);margin-top:4px}
+.help code{font-family:"IBM Plex Mono",monospace;font-size:11.5px;
+  background:var(--panel2);padding:1px 5px;border-radius:4px}
 .set{color:#7FBF7F}
 .unset{color:var(--muted)}
 
@@ -111,6 +113,24 @@ select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   <div class="check" id="models"></div>
 
   <div id="groups"></div>
+
+  <h2>Claude Code</h2>
+  <div class="card">
+    <div class="check" id="cc"></div>
+    <div class="actions">
+      <button id="cc-probe" class="ghost">VERBINDUNG WIRKLICH TESTEN</button>
+    </div>
+    <div class="help" style="margin-top:12px">
+      <b>Token erzeugen</b> – einmalig, gilt rund ein Jahr:<br>
+      1. Terminal öffnen, wo du in Claude Code angemeldet bist. Das geht auch
+         im Container: Coolify → diese Ressource → Terminal.<br>
+      2. <code>claude setup-token</code> ausführen und dem Link folgen.<br>
+      3. Den Token (<code>sk-ant-oat01-…</code>) oben unter <i>Zugänge</i> ins
+         Feld <i>Claude-Code-Token</i> einsetzen und speichern.<br>
+      <b>Nicht verwechseln:</b> Ein API-Key (<code>sk-ant-api…</code>) geht hier
+      nicht – der läuft über die Token-Abrechnung, nicht über dein Abo.
+    </div>
+  </div>
 
   <h2>Verbindungstest</h2>
   <div class="card">
@@ -327,6 +347,28 @@ $("load-models").onclick = async () => {
   finally{ $("load-models").disabled = false; }
 };
 
+/* ---------------- Claude Code ---------------- */
+function ccZeile(label, stufe, extra){
+  return `<div class="${stufe.ok ? "ok" : "bad"}">${stufe.ok ? "✓" : "✕"}
+    ${esc(label)} — ${esc(stufe.detail)}${extra ? " · " + esc(extra) : ""}</div>`;
+}
+
+async function ccLaden(probe){
+  $("cc").innerHTML = "<div>Prüfe …</div>";
+  try{
+    const d = await api("GET", "/api/claude-code" + (probe ? "?probe=true" : ""));
+    $("cc").innerHTML =
+      ccZeile("CLI installiert", d.cli, d.cli.version)
+      + ccZeile("Token hinterlegt", d.token, d.token.source ? "Quelle: " + d.token.source : "")
+      + ccZeile("Verbindung", d.connection);
+  }catch(err){ $("cc").innerHTML = `<div class="bad">${esc(err.message)}</div>`; }
+}
+
+$("cc-probe").onclick = async () => {
+  $("cc-probe").disabled = true;
+  try{ await ccLaden(true); } finally { $("cc-probe").disabled = false; }
+};
+
 $("probe").onclick = async () => {
   $("probe").disabled = true;
   $("integrations").innerHTML = "<div>Teste …</div>";
@@ -341,6 +383,7 @@ $("probe").onclick = async () => {
 };
 
 loadAll().catch(err => say(err.message, "bad"));
+ccLaden(false);
 </script>
 </body>
 </html>

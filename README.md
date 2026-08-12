@@ -142,9 +142,30 @@ Links steht der Preis je 1 Mio. Eingabetoken, rechts je 1 Mio. Ausgabetoken, in 
 
 Der Claude-Agent läuft standardmäßig über die Claude-Code-CLI statt über die API – dein Abo zahlt, nicht die Token-Uhr. Bonus: Bei Repo-Analysen bekommt Claude Code das geklonte Repo als Arbeitsverzeichnis und durchsucht den Code mit seinen eigenen Tools.
 
-1. Auf deinem Rechner (wo du in Claude Code eingeloggt bist): `claude setup-token`
-2. Den erzeugten `sk-ant-oat01-...`-Token als `CLAUDE_CODE_OAUTH_TOKEN` in die `.env`
-3. Fertig – der Container bringt die Claude-Code-CLI schon mit (siehe Dockerfile)
+Die CLI ist **bereits installiert** – der Container bringt Node 20 und
+`@anthropic-ai/claude-code` mit. Es fehlt nur der Token.
+
+1. Ein Terminal öffnen. Entweder auf deinem Rechner, oder direkt im Container:
+   **Coolify → diese Ressource → Terminal**.
+2. `claude setup-token` ausführen und dem angezeigten Link folgen.
+3. Den Token (`sk-ant-oat01-…`) unter `/settings` → *Zugänge* ins Feld
+   **Claude-Code-Token** einsetzen und speichern.
+4. Auf derselben Seite unter **Claude Code** auf „Verbindung wirklich testen".
+
+> **Nicht verwechseln:** Ein API-Key (`sk-ant-api…`) funktioniert hier nicht –
+> der läuft über die Token-Abrechnung statt über dein Abo. Die Diagnose erkennt
+> das und sagt es dir.
+
+**Warum es kein Terminal im Boardroom gibt:** Eine Shell im Web-UI wäre
+beliebige Befehlsausführung auf deinem Coolify-Host, abgesichert durch ein
+einziges Passwort. Wer die Session bekommt, bekommt den Server. Coolify hat
+für genau diesen Zweck bereits ein Terminal je Ressource – dort gehört es hin.
+
+### Diagnose statt Rätselraten
+
+`/settings` zeigt unter **Claude Code** drei getrennte Zeilen: CLI installiert,
+Token hinterlegt (samt Quelle – Einstellungen oder `.env`), Verbindung. Vorher
+las man nur „Token fehlt" und wusste nicht, ob die CLI überhaupt da ist.
 
 Hinweise:
 - Der Token gilt ~1 Jahr und zieht auf deine Abo-Rate-Limits ein

@@ -182,3 +182,54 @@ def test_nicht_chat_modelle_fliegen_raus():
 
 def test_vorschlaege_kommen_nie_aus_dem_nicht_chat_bereich():
     assert "openai/whisper-large-v3" not in suggest("openai/whisper", KATALOG)
+
+
+# ---------------------------------------------------------------- Claude Code
+def _diagnose(probe=False):
+    import asyncio
+
+    from app import claude_code
+    return asyncio.run(claude_code.diagnose(probe))
+
+
+def test_diagnose_zeigt_jede_stufe_einzeln():
+    """'Token fehlt' allein verrät nicht, ob die CLI installiert ist."""
+    bericht = _diagnose()
+    assert set(bericht) >= {"cli", "token", "connection", "ready"}
+
+
+def test_fehlender_token_wird_benannt():
+    bericht = _diagnose()
+    assert bericht["token"]["ok"] is False
+    assert "Nicht hinterlegt" in bericht["token"]["detail"]
+
+
+def test_api_key_statt_subscription_token_wird_erkannt():
+    """Häufigster Fehler: sk-ant-api… eingetragen, das geht hier nicht."""
+    settings.set_many({"claude_code_oauth_token": "sk-ant-api03-abcdef"})
+    token = _diagnose()["token"]
+    assert token["ok"] is False
+    assert "API-Key" in token["detail"]
+
+
+def test_gueltiger_token_wird_akzeptiert_und_nie_ausgegeben():
+    settings.set_many({"claude_code_oauth_token": "sk-ant-oat01-supergeheim"})
+    token = _diagnose()["token"]
+    assert token["ok"] is True
+    assert "supergeheim" not in token["detail"]
+    assert token["source"] == "Einstellungen"
+
+
+def test_verbindung_wird_ohne_knopfdruck_nicht_geprueft():
+    assert _diagnose()["connection"]["detail"] == "Auf Knopfdruck prüfbar."
+
+
+def test_diagnose_braucht_eine_session(monkeypatch):
+    monkeypatch.setattr(auth, "PASSWORD", "geheim")
+    monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", False)
+    assert TestClient(main.app).get("/api/claude-code").status_code == 401
+
+
+def test_diagnose_ueber_die_api(angemeldet):
+    bericht = angemeldet.get("/api/claude-code").json()
+    assert "cli" in bericht and "token" in bericht
