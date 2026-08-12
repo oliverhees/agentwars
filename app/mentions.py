@@ -9,22 +9,26 @@ Zwei Wege:
 import re
 
 from .bus import bus
-from .config import env
+from .config import AGENT_IDS, env
 
 MAX_MENTION_ROUNDS = int(env("MAX_MENTION_ROUNDS", "2"))
 MAX_TOKENS_MENTION = int(env("MAX_TOKENS_MENTION", "900"))
 
-HANDLES = ["claude", "gpt", "kimi", "qwen", "deepseek", "glm"]
-MENTION_RE = re.compile(r"@(" + "|".join(HANDLES) + r")\b", re.IGNORECASE)
+# Handles kommen aus der Team-Definition, nicht aus einer zweiten Liste.
+HANDLES = list(AGENT_IDS)
+MENTION_RE = re.compile(
+    r"@(" + "|".join(re.escape(h) for h in HANDLES) + r")\b", re.IGNORECASE)
 
-MENTION_RULES = (
-    "\n\nIm Team-Chat kannst du Kollegen direkt ansprechen: "
-    + ", ".join("@" + h for h in HANDLES) +
-    ". Nutze eine @Erwähnung NUR, wenn du von genau dieser Person eine "
-    "Antwort brauchst (Widerspruch, Rückfrage, Bestätigung einer These). "
-    "Maximal zwei @Erwähnungen pro Beitrag. Wirst du selbst erwähnt, "
-    "antworte kurz, direkt und in der Sache."
-)
+
+def mention_rules() -> str:
+    return (
+        "\n\nIm Team-Chat kannst du Kollegen direkt ansprechen: "
+        + ", ".join("@" + h for h in HANDLES) +
+        ". Nutze eine @Erwähnung NUR, wenn du von genau dieser Person eine "
+        "Antwort brauchst (Widerspruch, Rückfrage, Bestätigung einer These). "
+        "Maximal zwei @Erwähnungen pro Beitrag. Wirst du selbst erwähnt, "
+        "antworte kurz, direkt und in der Sache."
+    )
 
 
 def extract_mentions(text: str, author_id: str) -> list[str]:

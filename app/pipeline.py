@@ -15,7 +15,7 @@ import uuid
 
 import litellm
 
-from . import claude_code, mentions
+from . import claude_code, mentions, preflight
 from .bus import bus
 from .config import (CHAIRMAN_ID, CLAUDE_TRANSPORT, MAX_TOKENS_CHAIRMAN,
                      MAX_TOKENS_REVIEW, build_team)
@@ -55,10 +55,12 @@ class Meeting:
                 if self.repo_dir:
                     prompt += ("\n\nDas Projekt-Repository liegt in deinem "
                                "Arbeitsverzeichnis. Nutze deine Tools, um den "
-                               "Code selbst zu durchsuchen, bevor du urteilst.")
+                               "Code selbst zu durchsuchen, bevor du urteilst. "
+                               "Du hast Lesezugriff – du änderst nichts.")
                 full = await claude_code.stream(
                     prompt, msg_id=msg_id, agent_id=agent_id,
-                    cwd=self.repo_dir, allow_tools=bool(self.repo_dir),
+                    cwd=self.repo_dir,
+                    profile="review" if self.repo_dir else None,
                 )
                 await bus.emit({"type": "msg_end", "id": msg_id,
                                 "agent": agent_id, "text": full})
@@ -112,6 +114,26 @@ class Meeting:
         return full
 
     # ------------------------------------------------------------ Helfer
+    async def _report_preflight(self) -> None:
+        """Sagt vor dem ersten teuren Call, wer heute überhaupt mitspielt."""
+        try:
+            report = await preflight.check()
+        except Exception as exc:
+            await bus.system(f"Preflight übersprungen ({exc}).")
+            return
+        broken = [a for a in report["agents"] if not a["ok"]]
+        if not broken:
+            await bus.system("Preflight: alle sechs Agenten antworten.")
+            return
+        for agent in broken:
+            hint = f" · {agent['hint']}" if agent["hint"] else ""
+            await bus.system(
+                f"Preflight-Warnung – {agent['name']} ({agent['model']}): "
+                f"{agent['detail']}{hint}")
+        await bus.system(
+            f"{len(broken)} von {len(report['agents'])} Agenten fallen "
+            "voraussichtlich aus. Das Meeting läuft trotzdem weiter.")
+
     async def _founder_notes(self) -> str:
         notes = await bus.drain_user_messages()
         if not notes:
@@ -128,6 +150,8 @@ class Meeting:
             await bus.system("Claude läuft über Claude Code – "
                              "deine Subscription ist im Einsatz.")
         try:
+            if preflight.CHECK_ON_START:
+                await self._report_preflight()
             await bus.phase("briefing", "done")
             base_context = (
                 f"## Projekt-Briefing vom Gründer\n{briefing}\n\n"

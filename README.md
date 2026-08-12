@@ -38,6 +38,33 @@ docker compose up --build
 # → http://localhost:8000
 ```
 
+### Zugang
+
+Der Boardroom ist **fail-closed**: Ohne `BOARDROOM_PASSWORD` in der `.env` antwortet die App auf jede Anfrage mit `503` und einem Hinweis. Das ist Absicht – der Dienst klont Repos und startet Claude Code mit Dateizugriff, offen im Netz wäre das ein Fernzugriff auf deinen Host.
+
+- Login-Seite mit Passwort, danach ein signiertes HttpOnly-Cookie (7 Tage, per `BOARDROOM_SESSION_HOURS` einstellbar)
+- Das Cookie deckt auch den WebSocket ab
+- 8 Fehlversuche pro IP in 5 Minuten → Sperre
+- `BOARDROOM_SECRET` setzen, wenn ein Redeploy dich nicht ausloggen soll
+- Nur wenn die App nachweislich ausschließlich lokal erreichbar ist: `BOARDROOM_ALLOW_ANONYMOUS=1`
+
+### Erlaubte Repo-Quellen
+
+`REPO_ALLOWLIST` bestimmt, von welchen Hosts geklont werden darf – leer heißt: gar nicht. Alles andere wird schon im Startformular abgelehnt, nicht erst im Meeting:
+
+```
+REPO_ALLOWLIST=github.com,git.deine-domain.de
+```
+
+Geprüft wird auf Schema (`https`/`ssh`), Host-Zugehörigkeit, rohe IP-Adressen und Option-Injection. `git` läuft ohne Credential-Prompts, ohne `ext::`- und `file::`-Transporte und ohne Submodule.
+
+### Preflight – antworten die Modelle überhaupt?
+
+Die Modell-Slugs in der `.env` sind Annahmen, bis sie jemand prüft. Stimmt einer nicht, fiel der Agent bisher erst mitten im Meeting aus.
+
+- **„TEAM PRÜFEN"** im Startdialog: ein Vier-Token-Call pro Agent, plus der echte Modellkatalog deines HostYourAI-Routers. Bei einem falschen Slug schlägt der Preflight passende Kandidaten aus dem Katalog vor.
+- Vor jedem Meeting läuft der Check automatisch und meldet Ausfälle im Chat (`PREFLIGHT_ON_START=0` schaltet das ab).
+
 ### Claude über deine Max-Subscription (Claude Code)
 
 Der Claude-Agent läuft standardmäßig über die Claude-Code-CLI statt über die API – dein Abo zahlt, nicht die Token-Uhr. Bonus: Bei Repo-Analysen bekommt Claude Code das geklonte Repo als Arbeitsverzeichnis und durchsucht den Code mit seinen eigenen Tools.
@@ -50,10 +77,13 @@ Hinweise:
 - Der Token gilt ~1 Jahr und zieht auf deine Abo-Rate-Limits ein
 - `ANTHROPIC_API_KEY` leer lassen, wenn alles über die Subscription laufen soll; falls gesetzt, filtert der Boardroom ihn für den Claude-Code-Prozess automatisch raus (Print-Modus würde sonst den API-Key bevorzugen)
 - Fällt Claude Code aus, greift automatisch der API-Fallback (sofern Key gesetzt)
-- Claude Code läuft bei Repo-Analysen mit `--dangerously-skip-permissions` – im ephemeren Container auf einem frisch geklonten Repo ist das ok, auf deinem Laptop wäre es das nicht
+- Toolrechte kommen als **Profil pro Aufruf**: Reviews laufen mit `CLAUDE_CODE_REVIEW_TOOLS` (`Read,Grep,Glob,LS,NotebookRead`) – lesen und suchen, nichts ändern, nichts ausführen. Was nicht in der Liste steht, lehnt Claude Code headless ab. Das Profil `build` (mit `Edit,Write,Bash`) ist für die spätere Umsetzungsphase vorbereitet und wird heute von keinem Codepfad angefordert.
+- Im Chat siehst du live, welche Datei Claude gerade liest (`⌁ Claude: Read app/main.py`)
 
 ### .env ausfüllen – Checkliste
 
+- [ ] `BOARDROOM_PASSWORD` – **Pflicht**, sonst startet die App nicht
+- [ ] `REPO_ALLOWLIST` – **Pflicht für Repo-Analysen**, z. B. `github.com`
 - [ ] `CLAUDE_CODE_OAUTH_TOKEN` – per `claude setup-token` (empfohlen)
 - [ ] `ANTHROPIC_API_KEY` – nur als Fallback nötig
 - [ ] `OPENAI_API_KEY` + `OPENAI_MODEL` – Modellnamen im OpenAI-Dashboard prüfen
@@ -78,7 +108,16 @@ Ohne Plane-Konfiguration läuft alles trotzdem – der Sync wird dann einfach ü
 4. Domain zuweisen – **HTTPS aktivieren** (WebSockets laufen dann automatisch über WSS)
 5. Deploy
 
-> Hinweis: v1 hat keinen Login. Häng die App hinter Coolify-Basic-Auth oder deinen Auth-Proxy, bevor du sie öffentlich erreichbar machst.
+> `BOARDROOM_PASSWORD` und `BOARDROOM_SECRET` gehören in Coolify als **geheime** Environment Variables, nicht ins Repo. Gleiches gilt für `CLAUDE_CODE_OAUTH_TOKEN` – der Token gewährt vollen Zugriff auf deine Subscription.
+
+## Tests
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest -q
+```
+
+Abgedeckt sind die Stellen, an denen ein Fehler teuer wird: Repo-URL-Validierung, Session-Tokens und Login-Sperre, der Türsteher vor HTTP und WebSocket, der Mention-Parser und die Issue-Extraktion aus der Chairman-Antwort.
 
 ## TencentDB Agent Memory (optional, empfohlen ab v1.1)
 
@@ -91,10 +130,14 @@ Das Team-Gedächtnis: [TencentCloud/TencentDB-Agent-Memory](https://github.com/T
 ## Architektur (bewusst schmal)
 
 ```
-Browser (Live-Chat, WebSocket)
+Browser (Login → Live-Chat, WebSocket)
+   │
+Session-Guard (HTTP + WS)
    │
 FastAPI ── Event-Bus ── Pipeline (4 Phasen)
-   │                        │
+   │           │            │
+   │           │         Claude Code (Subscription, Toolprofil "review")
+   │        Preflight       │
    │                     LiteLLM ──► Anthropic / OpenAI / HostYourAI
    │                        │              (optional via Memory-Proxy)
    └── Plane REST API ◄─────┘

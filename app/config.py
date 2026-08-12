@@ -39,6 +39,12 @@ MAX_TOKENS_CHAIRMAN = int(env("MAX_TOKENS_CHAIRMAN", "6000"))
 
 
 # ---------------------------------------------------------------- Agenten
+# Einzige Quelle für die Team-Zusammensetzung. mentions.py leitet die
+# @Handles hiervon ab, damit eine Team-Änderung die Mentions nicht still
+# bricht – build_team() prüft unten, dass beides deckungsgleich bleibt.
+AGENT_IDS = ("claude", "gpt", "kimi", "qwen", "deepseek", "glm")
+
+
 @dataclass
 class AgentSpec:
     id: str
@@ -68,8 +74,8 @@ def build_team() -> dict[str, AgentSpec]:
         "1) Stärken (kurz) 2) Kritische Schwächen (ausführlich, priorisiert) "
         "3) Konkrete Verbesserungen (umsetzbar formuliert)."
     )
-    from .mentions import MENTION_RULES
-    common += MENTION_RULES
+    from .mentions import mention_rules
+    common += mention_rules()
     team = {
         "claude": AgentSpec(
             id="claude", name="Claude", tagline="Senior Dev · Anthropic",
@@ -121,6 +127,10 @@ def build_team() -> dict[str, AgentSpec]:
             "Markt? Wo lügt sich der Gründer in die Tasche? Sei unbequem, aber fair.",
         ),
     }
+    if set(team) != set(AGENT_IDS):
+        raise RuntimeError(
+            "Team und AGENT_IDS laufen auseinander – @Mentions würden für "
+            f"{sorted(set(team) ^ set(AGENT_IDS))} nicht mehr greifen.")
     return team
 
 

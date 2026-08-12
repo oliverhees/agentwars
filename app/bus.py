@@ -3,6 +3,10 @@ import asyncio
 import json
 import time
 
+# Der Verlauf lebt im RAM. Ohne Deckel wächst er bei Dauerbetrieb unbegrenzt,
+# und ein Meeting mit vielen Diskussionsrunden füllt ihn schnell.
+HISTORY_LIMIT = 2000
+
 
 class Bus:
     def __init__(self) -> None:
@@ -30,6 +34,8 @@ class Bus:
         # kommt als msg_end mit Volltext.
         if event.get("type") != "token":
             self.history.append(event)
+            if len(self.history) > HISTORY_LIMIT:
+                del self.history[:-HISTORY_LIMIT]
         data = json.dumps(event, ensure_ascii=False)
         dead = []
         for ws in list(self.clients):

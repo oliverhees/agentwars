@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 
 from .config import CONTEXT_CHAR_BUDGET
+from .security import redact, validate_repo_url
 
 SKIP_DIRS = {
     ".git", "node_modules", ".next", "dist", "build", "__pycache__",
@@ -24,12 +25,42 @@ CODE_EXT = {
 }
 
 
+def _git_env() -> dict:
+    """git darf beim Klonen nicht interaktiv werden und keine exotischen
+    Transporte benutzen – sonst hängt der Request oder führt Code aus."""
+    e = os.environ.copy()
+    e["GIT_TERMINAL_PROMPT"] = "0"     # kein Passwort-Prompt → kein Hänger
+    e["GIT_ASKPASS"] = "/bin/true"
+    e["GIT_CONFIG_NOSYSTEM"] = "1"
+    return e
+
+
 def clone_repo(git_url: str) -> str:
+    """Klont ein Repo aus der Allowlist. Wirft RepoUrlError bei fremden Quellen."""
+    url = validate_repo_url(git_url)
     target = tempfile.mkdtemp(prefix="review_")
-    subprocess.run(
-        ["git", "clone", "--depth", "1", git_url, target],
-        check=True, capture_output=True, timeout=180,
-    )
+    try:
+        subprocess.run(
+            [
+                "git",
+                # ext::/ führt beliebige Shell-Kommandos aus, wenn ein Repo
+                # sie in .gitmodules o. ä. unterjubelt – hart abschalten.
+                "-c", "protocol.ext.allow=never",
+                "-c", "protocol.file.allow=never",
+                "-c", "credential.helper=",
+                "clone", "--depth", "1", "--no-tags",
+                "--single-branch", "--recurse-submodules=no",
+                "--", url, target,          # '--' beendet die Optionsliste
+            ],
+            check=True, capture_output=True, timeout=180, env=_git_env(),
+        )
+    except subprocess.CalledProcessError as exc:
+        shutil.rmtree(target, ignore_errors=True)
+        detail = (exc.stderr or b"").decode(errors="replace").strip()[-300:]
+        raise RuntimeError(f"git clone fehlgeschlagen ({redact(detail)})") from exc
+    except Exception:
+        shutil.rmtree(target, ignore_errors=True)
+        raise
     return target
 
 

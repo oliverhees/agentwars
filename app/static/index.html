@@ -105,6 +105,8 @@ main{flex:1; display:flex; min-height:0}
   font-family:"IBM Plex Mono",monospace; font-size:11.5px;
   color:var(--muted)}
 .sys.plane{color:var(--accent)}
+.sys.tool{opacity:.75}
+.sys.warn{color:#E5A445}
 .caret{display:inline-block; width:7px; height:14px;
   background:var(--agent,#888); vertical-align:-2px; margin-left:2px;
   animation:pulse .8s steps(2) infinite}
@@ -147,8 +149,19 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
 .start-card input:focus,.start-card textarea:focus{
   border-color:var(--accent)}
 .start-card button{margin-top:18px; width:100%; height:44px}
+.start-card button.ghost{background:none; border:1px solid var(--line);
+  color:var(--muted); margin-top:10px; height:38px}
+.start-card button.ghost:hover{border-color:var(--accent); color:var(--text)}
 .start-card .err{color:#E06060; font-size:12.5px; margin-top:8px;
   min-height:16px}
+#check{margin-top:12px; font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px; line-height:1.7; max-height:34vh; overflow-y:auto}
+#check .row{display:flex; gap:8px; align-items:baseline}
+#check .row .state{flex:none; width:14px}
+#check .ok{color:var(--muted)}
+#check .bad{color:#E06060}
+#check .hint{color:#E5A445; padding-left:22px}
+#check .cat{color:var(--muted); padding-top:8px; word-break:break-all}
 
 /* ---------- Mobile ---------- */
 @media (max-width:760px){
@@ -197,7 +210,9 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
     <label for="brief">BRIEFING</label>
     <textarea id="brief" placeholder="Was ist das Projekt, für wen, was soll es erreichen – und was soll das Board besonders prüfen?"></textarea>
     <button id="go">MEETING STARTEN</button>
+    <button id="probe" class="ghost" type="button">TEAM PRÜFEN</button>
     <div class="err" id="err"></div>
+    <div id="check" aria-live="polite"></div>
   </div>
 </div>
 
@@ -220,6 +235,7 @@ function md(text){
 /* ---------------- Team + Agenda laden ---------------- */
 async function boot(){
   const res = await fetch("/api/team");
+  if (res.status === 401){ location.reload(); return; }
   const data = await res.json();
   data.agents.forEach(a => state.agents[a.id] = a);
   state.phases = data.phases;
@@ -324,9 +340,18 @@ function handle(ev){
       <div class="body">${md(ev.text)}</div>`;
     $("chat").appendChild(div); scrollDown();
   }
+  else if (ev.type === "tool"){
+    const a = state.agents[ev.agent];
+    const div = document.createElement("div");
+    div.className = "sys tool";
+    div.textContent = `⌁ ${a ? a.name : ev.agent}: ${ev.text}`;
+    if (a) div.style.color = a.color;
+    $("chat").appendChild(div); scrollDown();
+  }
   else if (ev.type === "system" || ev.type === "plane"){
     const div = document.createElement("div");
-    div.className = "sys" + (ev.type === "plane" ? " plane" : "");
+    const warn = ev.type === "system" && /warnung|fehler|fällt aus|fallen/i.test(ev.text);
+    div.className = "sys" + (ev.type === "plane" ? " plane" : warn ? " warn" : "");
     div.textContent = (ev.type === "plane" ? "◆ " : "· ") + ev.text;
     $("chat").appendChild(div); scrollDown();
   }
@@ -344,6 +369,36 @@ $("input").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendMsg(); }
 });
 
+/* ---------------- Preflight: wer antwortet überhaupt? ---------------- */
+const esc = s => String(s ?? "").replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+$("probe").onclick = async () => {
+  $("probe").disabled = true;
+  $("check").innerHTML = '<div class="ok">Prüfe Modelle …</div>';
+  try{
+    const res = await fetch("/api/preflight");
+    if (res.status === 401){ location.reload(); return; }
+    const data = await res.json();
+    const rows = data.agents.map(a => `
+      <div class="row ${a.ok ? "ok" : "bad"}">
+        <span class="state">${a.ok ? "✓" : "✕"}</span>
+        <span>${esc(a.name)} · ${esc(a.model)} — ${esc(a.detail)}</span>
+      </div>` + (a.hint ? `<div class="hint">↳ ${esc(a.hint)}</div>` : "")
+    ).join("");
+    const catalog = data.router_error
+      ? `<div class="cat">Router-Katalog: ${esc(data.router_error)}</div>`
+      : (data.router_models.length
+          ? `<div class="cat">Router kennt: ${data.router_models.map(esc).join(", ")}</div>`
+          : "");
+    $("check").innerHTML = rows + catalog;
+  }catch(err){
+    $("check").innerHTML = `<div class="bad">Preflight fehlgeschlagen: ${esc(err.message)}</div>`;
+  }finally{
+    $("probe").disabled = false;
+  }
+};
+
 /* ---------------- Meeting starten ---------------- */
 $("go").onclick = async () => {
   $("err").textContent = "";
@@ -354,6 +409,7 @@ $("go").onclick = async () => {
       body: JSON.stringify({ briefing: $("brief").value,
                              git_url: $("git").value || null })
     });
+    if (res.status === 401){ location.reload(); return; }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Start fehlgeschlagen");
     $("start").style.display = "none";
