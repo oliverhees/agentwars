@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Boardroom · KI-Agentur</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<style>
+:root{
+  --bg:#0E0F12; --panel:#16181D; --panel2:#1B1E24; --line:#262932;
+  --text:#E9E7E2; --muted:#8B8F98; --accent:#F97216;
+  --radius:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:"IBM Plex Sans",system-ui,sans-serif;
+  font-size:15px; line-height:1.55;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.mono{font-family:"IBM Plex Mono",monospace}
+
+/* ---------- Topbar: Wordmark + Agenda ---------- */
+header{
+  display:flex; align-items:center; gap:20px;
+  padding:10px 16px; border-bottom:1px solid var(--line);
+  background:var(--panel); flex-wrap:wrap;
+}
+.wordmark{font-family:"IBM Plex Mono",monospace; font-weight:600;
+  letter-spacing:.14em; font-size:13px; white-space:nowrap}
+.wordmark b{color:var(--accent); font-weight:600}
+.agenda{display:flex; gap:4px 14px; flex-wrap:wrap; align-items:center}
+.agenda-item{font-family:"IBM Plex Mono",monospace; font-size:11.5px;
+  color:var(--muted); display:flex; align-items:center; gap:6px;
+  letter-spacing:.04em; white-space:nowrap}
+.agenda-item .tick{width:7px; height:7px; border-radius:50%;
+  background:var(--line); flex:none}
+.agenda-item.active{color:var(--text)}
+.agenda-item.active .tick{background:var(--accent);
+  animation:pulse 1.4s ease-in-out infinite}
+.agenda-item.done{color:var(--muted); text-decoration:line-through;
+  text-decoration-color:var(--accent); text-decoration-thickness:1px}
+.agenda-item.done .tick{background:var(--accent)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){
+  .agenda-item.active .tick,.dot.typing{animation:none}}
+
+/* ---------- Layout ---------- */
+main{flex:1; display:flex; min-height:0}
+.rail{
+  width:210px; flex:none; border-right:1px solid var(--line);
+  background:var(--panel); padding:14px 12px; overflow-y:auto;
+}
+.rail h2{font-family:"IBM Plex Mono",monospace; font-size:10.5px;
+  color:var(--muted); letter-spacing:.16em; margin-bottom:12px;
+  font-weight:500}
+.member{display:flex; align-items:center; gap:10px; padding:7px 6px;
+  border-radius:8px}
+.member .dot{width:9px; height:9px; border-radius:50%; flex:none;
+  opacity:.45; transition:opacity .2s}
+.member .dot.typing{opacity:1; animation:pulse 1s ease-in-out infinite;
+  box-shadow:0 0 8px currentColor}
+.member .who{min-width:0}
+.member .name{font-family:"IBM Plex Mono",monospace; font-size:12.5px;
+  font-weight:600}
+.member .tag{font-size:11px; color:var(--muted); white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis}
+
+/* ---------- Chat ---------- */
+.chat-wrap{flex:1; display:flex; flex-direction:column; min-width:0}
+#chat{flex:1; overflow-y:auto; padding:18px 18px 8px;
+  scroll-behavior:smooth}
+.msg{max-width:860px; margin:0 auto 14px}
+.msg .head{display:flex; align-items:baseline; gap:8px; margin-bottom:3px}
+.msg .head .name{font-family:"IBM Plex Mono",monospace; font-size:12px;
+  font-weight:600}
+.msg .head .role{font-size:11px; color:var(--muted)}
+.msg .body{background:var(--panel); border:1px solid var(--line);
+  border-left:2px solid var(--agent,#555);
+  border-radius:var(--radius); padding:10px 14px;
+  overflow-wrap:break-word}
+.msg .body :is(h1,h2,h3,h4){font-size:14px; margin:10px 0 4px;
+  font-weight:600}
+.msg .body p{margin:6px 0}
+.msg .body ul,.msg .body ol{margin:6px 0 6px 18px}
+.msg .body li{margin:2px 0}
+.msg .body code{font-family:"IBM Plex Mono",monospace; font-size:12.5px;
+  background:var(--panel2); padding:1px 5px; border-radius:4px}
+.msg .body pre{background:var(--panel2); border:1px solid var(--line);
+  border-radius:8px; padding:10px; overflow-x:auto; margin:8px 0}
+.msg .body pre code{background:none; padding:0}
+.mention{font-family:"IBM Plex Mono",monospace; font-size:.92em;
+  font-weight:600; padding:0 4px; border-radius:5px;
+  background:color-mix(in srgb, var(--m,#888) 18%, transparent);
+  color:var(--m,#aaa)}
+.member{cursor:pointer}
+.member:hover{background:var(--panel2)}
+.msg.me .body{border-left-color:var(--accent); background:var(--panel2)}
+.msg.me .head .name{color:var(--accent)}
+.sys{max-width:860px; margin:0 auto 14px; text-align:center;
+  font-family:"IBM Plex Mono",monospace; font-size:11.5px;
+  color:var(--muted)}
+.sys.plane{color:var(--accent)}
+.caret{display:inline-block; width:7px; height:14px;
+  background:var(--agent,#888); vertical-align:-2px; margin-left:2px;
+  animation:pulse .8s steps(2) infinite}
+
+/* ---------- Composer ---------- */
+.composer{border-top:1px solid var(--line); background:var(--panel);
+  padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
+.composer-inner{max-width:860px; margin:0 auto; display:flex; gap:8px}
+.composer textarea{flex:1; resize:none; background:var(--panel2);
+  border:1px solid var(--line); border-radius:var(--radius);
+  color:var(--text); font:inherit; padding:9px 12px; height:44px;
+  outline:none}
+.composer textarea:focus{border-color:var(--accent)}
+button{font-family:"IBM Plex Mono",monospace; font-weight:600;
+  font-size:13px; border:none; border-radius:var(--radius);
+  background:var(--accent); color:#0E0F12; padding:0 18px;
+  cursor:pointer}
+button:disabled{opacity:.4; cursor:default}
+button:focus-visible,textarea:focus-visible,input:focus-visible{
+  outline:2px solid var(--accent); outline-offset:2px}
+
+/* ---------- Start-Overlay ---------- */
+#start{position:fixed; inset:0; background:rgba(10,11,13,.88);
+  backdrop-filter:blur(4px); display:flex; align-items:center;
+  justify-content:center; padding:16px; z-index:10}
+.start-card{background:var(--panel); border:1px solid var(--line);
+  border-radius:14px; padding:22px; width:100%; max-width:520px}
+.start-card h1{font-family:"IBM Plex Mono",monospace; font-size:15px;
+  letter-spacing:.1em; margin-bottom:4px}
+.start-card h1 b{color:var(--accent)}
+.start-card p{color:var(--muted); font-size:13px; margin-bottom:16px}
+.start-card label{display:block; font-family:"IBM Plex Mono",monospace;
+  font-size:11px; letter-spacing:.08em; color:var(--muted);
+  margin:12px 0 5px}
+.start-card input,.start-card textarea{width:100%;
+  background:var(--panel2); border:1px solid var(--line);
+  border-radius:8px; color:var(--text); font:inherit; padding:9px 12px;
+  outline:none}
+.start-card textarea{height:110px; resize:vertical}
+.start-card input:focus,.start-card textarea:focus{
+  border-color:var(--accent)}
+.start-card button{margin-top:18px; width:100%; height:44px}
+.start-card .err{color:#E06060; font-size:12.5px; margin-top:8px;
+  min-height:16px}
+
+/* ---------- Mobile ---------- */
+@media (max-width:760px){
+  main{flex-direction:column}
+  .rail{width:100%; display:flex; gap:2px; overflow-x:auto;
+    padding:8px 10px; border-right:none;
+    border-bottom:1px solid var(--line)}
+  .rail h2{display:none}
+  .member{flex:none; padding:4px 8px}
+  .member .tag{display:none}
+  .agenda{order:3; width:100%}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">BOARD<b>ROOM</b></div>
+  <nav class="agenda" id="agenda" aria-label="Meeting-Agenda"></nav>
+</header>
+
+<main>
+  <aside class="rail" aria-label="Team">
+    <h2>DEIN TEAM</h2>
+    <div id="members"></div>
+  </aside>
+
+  <section class="chat-wrap">
+    <div id="chat" aria-live="polite"></div>
+    <div class="composer">
+      <div class="composer-inner">
+        <textarea id="input" placeholder="Sprich mit deinem Team … @name = sofortige Direktantwort"
+          aria-label="Nachricht an das Team"></textarea>
+        <button id="send">SENDEN</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="start">
+  <div class="start-card">
+    <h1>BOARD<b>ROOM</b></h1>
+    <p>Sechs KI-Spezialisten. Ein Meeting. Dein Projekt auf dem Tisch.</p>
+    <label for="git">GIT-REPO-URL (optional)</label>
+    <input id="git" type="url" placeholder="https://github.com/du/dein-projekt.git">
+    <label for="brief">BRIEFING</label>
+    <textarea id="brief" placeholder="Was ist das Projekt, für wen, was soll es erreichen – und was soll das Board besonders prüfen?"></textarea>
+    <button id="go">MEETING STARTEN</button>
+    <div class="err" id="err"></div>
+  </div>
+</div>
+
+<script>
+const state = { agents:{}, phases:[], msgs:{} };
+const $ = id => document.getElementById(id);
+marked.setOptions({ breaks:true });
+
+function md(text){
+  let html = DOMPurify.sanitize(marked.parse(text || ""));
+  // @mentions einfärben (Agenten + DU)
+  for (const id in state.agents){
+    const a = state.agents[id];
+    html = html.replace(new RegExp("@" + id + "\\b", "gi"),
+      `<span class="mention" style="--m:${a.color}">@${a.name}</span>`);
+  }
+  return html;
+}
+
+/* ---------------- Team + Agenda laden ---------------- */
+async function boot(){
+  const res = await fetch("/api/team");
+  const data = await res.json();
+  data.agents.forEach(a => state.agents[a.id] = a);
+  state.phases = data.phases;
+
+  $("members").innerHTML = data.agents.map(a => `
+    <div class="member" id="member-${a.id}">
+      <span class="dot" id="dot-${a.id}" style="background:${a.color};color:${a.color}"></span>
+      <span class="who">
+        <span class="name" style="color:${a.color}">${a.name}</span><br>
+        <span class="tag">${a.tagline}</span>
+      </span>
+    </div>`).join("");
+
+  $("agenda").innerHTML = state.phases.map(p => `
+    <span class="agenda-item" id="phase-${p.id}">
+      <span class="tick"></span>${p.label}
+    </span>`).join("");
+
+  data.agents.forEach(a => {
+    $("member-" + a.id).onclick = () => {
+      const inp = $("input");
+      inp.value = (inp.value ? inp.value.trimEnd() + " " : "") + "@" + a.id + " ";
+      inp.focus();
+    };
+  });
+
+  if (data.running) $("start").style.display = "none";
+  connect();
+}
+
+/* ---------------- WebSocket ---------------- */
+let ws, sendQueue = [];
+function connect(){
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = e => handle(JSON.parse(e.data));
+  ws.onopen = () => { sendQueue.forEach(t => ws.send(t)); sendQueue = []; };
+  ws.onclose = () => setTimeout(connect, 1500);
+}
+
+function scrollDown(){
+  const c = $("chat");
+  const nearBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 220;
+  if (nearBottom) c.scrollTop = c.scrollHeight;
+}
+
+/* ---------------- Events rendern ---------------- */
+function handle(ev){
+  if (ev.type === "phase"){
+    const el = $("phase-" + ev.phase);
+    if (el){ el.classList.remove("active","done");
+      if (ev.status === "active") el.classList.add("active");
+      if (ev.status === "done") el.classList.add("done"); }
+  }
+  else if (ev.type === "agent_status"){
+    const dot = $("dot-" + ev.agent);
+    if (dot) dot.classList.toggle("typing", ev.status === "typing");
+  }
+  else if (ev.type === "msg_start"){
+    const a = state.agents[ev.agent] || {name:ev.agent, color:"#888", tagline:""};
+    const div = document.createElement("div");
+    div.className = "msg"; div.id = "m-" + ev.id;
+    div.style.setProperty("--agent", a.color);
+    div.innerHTML = `
+      <div class="head">
+        <span class="name" style="color:${a.color}">${a.name}</span>
+        <span class="role">${a.tagline}</span>
+      </div>
+      <div class="body"><span class="stream"></span><span class="caret" style="--agent:${a.color};background:${a.color}"></span></div>`;
+    $("chat").appendChild(div);
+    state.msgs[ev.id] = "";
+    scrollDown();
+  }
+  else if (ev.type === "token"){
+    const div = $("m-" + ev.id);
+    if (!div){ return; }
+    state.msgs[ev.id] += ev.text;
+    div.querySelector(".stream").textContent = state.msgs[ev.id];
+    scrollDown();
+  }
+  else if (ev.type === "msg_end"){
+    const div = $("m-" + ev.id);
+    if (div){
+      div.querySelector(".caret")?.remove();
+      div.querySelector(".stream").innerHTML = md(ev.text);
+    } else {
+      // Nachricht kam aus der History (Reload)
+      handle({type:"msg_start", id:ev.id, agent:ev.agent});
+      const d = $("m-" + ev.id);
+      d.querySelector(".caret")?.remove();
+      d.querySelector(".stream").innerHTML = md(ev.text);
+    }
+    delete state.msgs[ev.id];
+    scrollDown();
+  }
+  else if (ev.type === "user_msg"){
+    const div = document.createElement("div");
+    div.className = "msg me";
+    div.innerHTML = `
+      <div class="head"><span class="name">DU</span>
+      <span class="role">Gründer</span></div>
+      <div class="body">${md(ev.text)}</div>`;
+    $("chat").appendChild(div); scrollDown();
+  }
+  else if (ev.type === "system" || ev.type === "plane"){
+    const div = document.createElement("div");
+    div.className = "sys" + (ev.type === "plane" ? " plane" : "");
+    div.textContent = (ev.type === "plane" ? "◆ " : "· ") + ev.text;
+    $("chat").appendChild(div); scrollDown();
+  }
+}
+
+/* ---------------- Senden ---------------- */
+function sendMsg(){
+  const text = $("input").value.trim();
+  if (!text) return;
+  $("input").value = "";
+  if (ws && ws.readyState === 1) ws.send(text); else sendQueue.push(text);
+}
+$("send").onclick = sendMsg;
+$("input").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendMsg(); }
+});
+
+/* ---------------- Meeting starten ---------------- */
+$("go").onclick = async () => {
+  $("err").textContent = "";
+  $("go").disabled = true;
+  try{
+    const res = await fetch("/api/start", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ briefing: $("brief").value,
+                             git_url: $("git").value || null })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Start fehlgeschlagen");
+    $("start").style.display = "none";
+  }catch(err){
+    $("err").textContent = err.message;
+  }finally{
+    $("go").disabled = false;
+  }
+};
+
+boot();
+</script>
+</body>
+</html>

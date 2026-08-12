@@ -1,0 +1,27 @@
+# Environment
+.env
+.env.local
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Data / Runtime
+*.db
+*.sqlite3
+data/
+logs/
+*.log
+
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/
