@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import tempfile
 
-from .config import CONTEXT_CHAR_BUDGET
+from . import settings
 from .security import redact, validate_repo_url
 
 SKIP_DIRS = {
@@ -83,6 +83,7 @@ def _score(path: str) -> int:
 
 def pack_project(root: str) -> str:
     """Baut ein Textpaket: Dateibaum + Dateiinhalte bis zum Budget."""
+    budget = settings.get_int("context_char_budget")
     tree_lines, files = [], []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
@@ -101,7 +102,7 @@ def pack_project(root: str) -> str:
     parts = ["## Dateibaum\n" + "\n".join(tree_lines[:800])]
     used = len(parts[0])
     for rel, full in files:
-        if used >= CONTEXT_CHAR_BUDGET:
+        if used >= budget:
             parts.append("\n[Kontextbudget erreicht – weitere Dateien ausgelassen]")
             break
         try:

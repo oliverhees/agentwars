@@ -1,4 +1,9 @@
-"""Zentrale Konfiguration: Agenten-Team, Modelle, Env."""
+"""Zentrale Konfiguration: Provider, Standard-Team, Prompt-Bausteine.
+
+Die *Werte* liegen zur Laufzeit in settings.py (Datenbank vor .env vor
+Default). Hier stehen nur noch die Defaults und die Regeln, wie aus einem
+Agenten-Datensatz ein aufrufbares Modell wird.
+"""
 import os
 from dataclasses import dataclass, field
 
@@ -12,37 +17,89 @@ def env(key: str, default: str = "") -> str:
 
 
 # ---------------------------------------------------------------- Provider
-ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY")
-# "claude-code" (Default, nutzt deine Subscription wenn die CLI da ist)
-# oder "api" (erzwingt die Anthropic-API für Claude)
-CLAUDE_TRANSPORT = env("CLAUDE_TRANSPORT", "claude-code")
-OPENAI_API_KEY = env("OPENAI_API_KEY")
+# prefix  = was LiteLLM vor den Modellnamen braucht
+# key     = Settings-Schlüssel des API-Keys
+# base    = Settings-Schlüssel der Base-URL (optional)
+# routed  = läuft über den HostYourAI-Router, kann also durch den
+#           Memory-Proxy geschleift werden
+PROVIDERS = {
+    "claude-code": {"label": "Claude Code (Subscription)", "prefix": "",
+                    "key": "", "base": "", "routed": False},
+    "anthropic": {"label": "Anthropic API", "prefix": "anthropic/",
+                  "key": "anthropic_api_key", "base": "", "routed": False},
+    "openai": {"label": "OpenAI API", "prefix": "openai/",
+               "key": "openai_api_key", "base": "", "routed": False},
+    "hostyourai": {"label": "HostYourAI Router", "prefix": "openai/",
+                   "key": "hyai_api_key", "base": "hyai_base_url",
+                   "routed": True},
+}
 
-# HostYourAI EU-Router (OpenAI-kompatibel)
-HYAI_BASE_URL = env("HYAI_BASE_URL", "https://hostyourai.com/api/v1")
-HYAI_API_KEY = env("HYAI_API_KEY")
+DEFAULT_BASE_PROMPT = (
+    "Du bist Teil eines KI-Review-Boards, das ein Software-Projekt "
+    "gnadenlos ehrlich analysiert, damit es maximal erfolgreich wird. "
+    "Antworte auf Deutsch. Sei konkret: nenne Dateien, Zeilen, Muster. "
+    "Keine Höflichkeitsfloskeln, kein Weichspülen. Struktur: "
+    "1) Stärken (kurz) 2) Kritische Schwächen (ausführlich, priorisiert) "
+    "3) Konkrete Verbesserungen (umsetzbar formuliert)."
+)
 
-# Optional: TencentDB Agent Memory Proxy davorschalten (OpenAI-Protokoll).
-# Wenn gesetzt, laufen die HostYourAI-Agenten durch den Memory-Proxy.
-MEMORY_PROXY_BASE_URL = env("MEMORY_PROXY_BASE_URL")
+# {handles} wird beim Zusammenbauen durch die echten @Handles ersetzt.
+DEFAULT_MENTION_RULES = (
+    "Im Team-Chat kannst du Kollegen direkt ansprechen: {handles}. "
+    "Nutze eine @Erwähnung NUR, wenn du von genau dieser Person eine "
+    "Antwort brauchst (Widerspruch, Rückfrage, Bestätigung einer These). "
+    "Maximal zwei @Erwähnungen pro Beitrag. Wirst du selbst erwähnt, "
+    "antworte kurz, direkt und in der Sache."
+)
 
-# ---------------------------------------------------------------- Plane
-PLANE_BASE_URL = env("PLANE_BASE_URL")          # z. B. https://plane.deine-domain.de
-PLANE_API_KEY = env("PLANE_API_KEY")            # Personal API Token (X-API-Key)
-PLANE_WORKSPACE = env("PLANE_WORKSPACE")        # Workspace-Slug
-PLANE_PROJECT_ID = env("PLANE_PROJECT_ID")      # Projekt-UUID
+# Startaufstellung. Ab dem ersten Start editierbar – die Datenbank gewinnt.
+DEFAULT_AGENTS = [
+    {"id": "claude", "name": "Claude", "tagline": "Senior Dev · Anthropic",
+     "color": "#8B7CF6", "provider": "claude-code",
+     "model": env("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+     "is_dev": 1, "is_chairman": 1,
+     "system_prompt": "Dein Fokus: Code-Qualität, Wartbarkeit, "
+     "Architektur-Entscheidungen und ob das Projekt hält, was es verspricht."},
+    {"id": "gpt", "name": "GPT", "tagline": "Senior Dev · OpenAI",
+     "color": "#4FB6A2", "provider": "openai",
+     "model": env("OPENAI_MODEL", "gpt-5.2"),
+     "is_dev": 1, "is_chairman": 0,
+     "system_prompt": "Dein Fokus: Robustheit, Edge-Cases, "
+     "Fehlerbehandlung, Testbarkeit und Developer Experience."},
+    {"id": "kimi", "name": "Kimi", "tagline": "Senior Dev · Moonshot",
+     "color": "#E8618C", "provider": "hostyourai",
+     "model": env("HYAI_MODEL_KIMI", "kimi-k3"),
+     "is_dev": 1, "is_chairman": 0,
+     "system_prompt": "Dein Fokus: Long-Horizon-Sicht auf die Codebasis, "
+     "Performance und ob die Struktur skalierbar ist."},
+    {"id": "qwen", "name": "Qwen", "tagline": "Architektur & Tooling",
+     "color": "#5A9CF8", "provider": "hostyourai",
+     "model": env("HYAI_MODEL_QWEN", "qwen3.5"),
+     "is_dev": 0, "is_chairman": 0,
+     "system_prompt": "Dein Fokus: Systemarchitektur, Abhängigkeiten, "
+     "Deployment, Tool- und API-Design."},
+    {"id": "deepseek", "name": "DeepSeek", "tagline": "Security & Reasoning",
+     "color": "#E5A445", "provider": "hostyourai",
+     "model": env("HYAI_MODEL_DEEPSEEK", "deepseek-v4-pro"),
+     "is_dev": 0, "is_chairman": 0,
+     "system_prompt": "Dein Fokus: Sicherheit, Datenschutz, Secrets-Handling, "
+     "Auth, Input-Validierung und logische Lücken."},
+    {"id": "glm", "name": "GLM", "tagline": "Devil's Advocate",
+     "color": "#C75B5B", "provider": "hostyourai",
+     "model": env("HYAI_MODEL_GLM", "glm-5.2"),
+     "is_dev": 0, "is_chairman": 0,
+     "system_prompt": "Deine Rolle: Devil's Advocate. Greif die Grundannahmen "
+     "des Projekts an: Braucht das jemand? Was killt es am Markt? Wo lügt "
+     "sich der Gründer in die Tasche? Sei unbequem, aber fair."},
+]
 
-# ---------------------------------------------------------------- Limits
-CONTEXT_CHAR_BUDGET = int(env("CONTEXT_CHAR_BUDGET", "160000"))
-MAX_TOKENS_REVIEW = int(env("MAX_TOKENS_REVIEW", "3000"))
-MAX_TOKENS_CHAIRMAN = int(env("MAX_TOKENS_CHAIRMAN", "6000"))
-
-
-# ---------------------------------------------------------------- Agenten
-# Einzige Quelle für die Team-Zusammensetzung. mentions.py leitet die
-# @Handles hiervon ab, damit eine Team-Änderung die Mentions nicht still
-# bricht – build_team() prüft unten, dass beides deckungsgleich bleibt.
-AGENT_IDS = ("claude", "gpt", "kimi", "qwen", "deepseek", "glm")
+PHASES = [
+    {"id": "briefing", "label": "Briefing"},
+    {"id": "gutachten", "label": "Einzelgutachten"},
+    {"id": "kreuzverhoer", "label": "Kreuzverhör"},
+    {"id": "synthese", "label": "Chairman-Synthese"},
+    {"id": "plane", "label": "Plane-Sync"},
+]
 
 
 @dataclass
@@ -52,6 +109,7 @@ class AgentSpec:
     tagline: str          # kurze Rollen-Beschreibung fürs UI
     color: str            # UI-Farbe
     model: str            # LiteLLM-Modellstring
+    provider: str = "hostyourai"
     api_key: str = ""
     api_base: str | None = None
     system_prompt: str = ""
@@ -59,87 +117,32 @@ class AgentSpec:
     extra: dict = field(default_factory=dict)
 
 
-def _hyai_base() -> str:
-    return MEMORY_PROXY_BASE_URL or HYAI_BASE_URL
-
-
 def build_team() -> dict[str, AgentSpec]:
-    """Das Board. Modellnamen kommen aus der .env, damit du sie ohne
-    Code-Änderung an den HostYourAI Model Garden anpassen kannst."""
-    common = (
-        "Du bist Teil eines KI-Review-Boards, das ein Software-Projekt "
-        "gnadenlos ehrlich analysiert, damit es maximal erfolgreich wird. "
-        "Antworte auf Deutsch. Sei konkret: nenne Dateien, Zeilen, Muster. "
-        "Keine Höflichkeitsfloskeln, kein Weichspülen. Struktur: "
-        "1) Stärken (kurz) 2) Kritische Schwächen (ausführlich, priorisiert) "
-        "3) Konkrete Verbesserungen (umsetzbar formuliert)."
-    )
-    from .mentions import mention_rules
-    common += mention_rules()
-    team = {
-        "claude": AgentSpec(
-            id="claude", name="Claude", tagline="Senior Dev · Anthropic",
-            color="#8B7CF6",
-            model=f"anthropic/{env('ANTHROPIC_MODEL', 'claude-sonnet-4-6')}",
-            api_key=ANTHROPIC_API_KEY, is_dev=True,
-            system_prompt=common + " Dein Fokus: Code-Qualität, Wartbarkeit, "
-            "Architektur-Entscheidungen und ob das Projekt hält, was es verspricht.",
-        ),
-        "gpt": AgentSpec(
-            id="gpt", name="GPT", tagline="Senior Dev · OpenAI",
-            color="#4FB6A2",
-            model=f"openai/{env('OPENAI_MODEL', 'gpt-5.2')}",
-            api_key=OPENAI_API_KEY, is_dev=True,
-            system_prompt=common + " Dein Fokus: Robustheit, Edge-Cases, "
-            "Fehlerbehandlung, Testbarkeit und Developer Experience.",
-        ),
-        "kimi": AgentSpec(
-            id="kimi", name="Kimi", tagline="Senior Dev · Moonshot",
-            color="#E8618C",
-            model=f"openai/{env('HYAI_MODEL_KIMI', 'kimi-k3')}",
-            api_key=HYAI_API_KEY, api_base=_hyai_base(), is_dev=True,
-            system_prompt=common + " Dein Fokus: Long-Horizon-Sicht auf die "
-            "Codebasis, Performance und ob die Struktur skalierbar ist.",
-        ),
-        "qwen": AgentSpec(
-            id="qwen", name="Qwen", tagline="Architektur & Tooling",
-            color="#5A9CF8",
-            model=f"openai/{env('HYAI_MODEL_QWEN', 'qwen3.5')}",
-            api_key=HYAI_API_KEY, api_base=_hyai_base(),
-            system_prompt=common + " Dein Fokus: Systemarchitektur, "
-            "Abhängigkeiten, Deployment, Tool- und API-Design.",
-        ),
-        "deepseek": AgentSpec(
-            id="deepseek", name="DeepSeek", tagline="Security & Reasoning",
-            color="#E5A445",
-            model=f"openai/{env('HYAI_MODEL_DEEPSEEK', 'deepseek-v4-pro')}",
-            api_key=HYAI_API_KEY, api_base=_hyai_base(),
-            system_prompt=common + " Dein Fokus: Sicherheit, Datenschutz, "
-            "Secrets-Handling, Auth, Input-Validierung und logische Lücken.",
-        ),
-        "glm": AgentSpec(
-            id="glm", name="GLM", tagline="Devil's Advocate",
-            color="#C75B5B",
-            model=f"openai/{env('HYAI_MODEL_GLM', 'glm-5.2')}",
-            api_key=HYAI_API_KEY, api_base=_hyai_base(),
-            system_prompt=common + " Deine Rolle: Devil's Advocate. Greif die "
-            "Grundannahmen des Projekts an: Braucht das jemand? Was killt es am "
-            "Markt? Wo lügt sich der Gründer in die Tasche? Sei unbequem, aber fair.",
-        ),
-    }
-    if set(team) != set(AGENT_IDS):
-        raise RuntimeError(
-            "Team und AGENT_IDS laufen auseinander – @Mentions würden für "
-            f"{sorted(set(team) ^ set(AGENT_IDS))} nicht mehr greifen.")
+    """Baut das Board aus den gespeicherten Agenten-Datensätzen."""
+    from . import settings
+
+    records = settings.active_agents()
+    handles = ", ".join("@" + r["id"] for r in records)
+    base = settings.get("base_prompt").strip()
+    rules = settings.get("mention_rules").strip().replace("{handles}", handles)
+    memory_proxy = settings.get("memory_proxy_base_url")
+
+    team: dict[str, AgentSpec] = {}
+    for record in records:
+        provider = PROVIDERS.get(record["provider"], PROVIDERS["hostyourai"])
+        api_base = settings.get(provider["base"]) if provider["base"] else ""
+        if provider["routed"] and memory_proxy:
+            api_base = memory_proxy
+        prompt = "\n\n".join(part for part in
+                             (base, record["system_prompt"].strip(), rules)
+                             if part)
+        team[record["id"]] = AgentSpec(
+            id=record["id"], name=record["name"], tagline=record["tagline"],
+            color=record["color"], provider=record["provider"],
+            model=provider["prefix"] + record["model"],
+            api_key=settings.get(provider["key"]) if provider["key"] else "",
+            api_base=api_base or None,
+            system_prompt=prompt,
+            is_dev=bool(record["is_dev"]),
+        )
     return team
-
-
-CHAIRMAN_ID = "claude"
-
-PHASES = [
-    {"id": "briefing", "label": "Briefing"},
-    {"id": "gutachten", "label": "Einzelgutachten"},
-    {"id": "kreuzverhoer", "label": "Kreuzverhör"},
-    {"id": "synthese", "label": "Chairman-Synthese"},
-    {"id": "plane", "label": "Plane-Sync"},
-]

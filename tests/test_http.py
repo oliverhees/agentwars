@@ -3,7 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from app import auth, github, main, store
+from app import auth, github, main, settings, store
 
 
 @pytest.fixture
@@ -92,15 +92,14 @@ def test_projektliste_startet_leer(angemeldet):
     assert angemeldet.get("/api/projects").json() == {"projects": []}
 
 
-def test_ohne_github_kein_projekt(angemeldet, monkeypatch):
-    monkeypatch.setattr(github.github, "enabled", False)
+def test_ohne_github_kein_projekt(angemeldet):
     resp = angemeldet.post("/api/projects", json={"name": "Content Factory"})
     assert resp.status_code == 422
     assert "GITHUB_TOKEN" in resp.json()["error"]
 
 
-def test_projekt_ohne_repo_wird_abgelehnt(angemeldet, monkeypatch):
-    monkeypatch.setattr(github.github, "enabled", True)
+def test_projekt_ohne_repo_wird_abgelehnt(angemeldet):
+    settings.set_many({"github_token": "ghp_test"})
     resp = angemeldet.post("/api/projects", json={"name": "Ohne Repo"})
     assert resp.status_code == 422
     assert "owner/name" in resp.json()["error"]
@@ -109,7 +108,7 @@ def test_projekt_ohne_repo_wird_abgelehnt(angemeldet, monkeypatch):
 def test_projekt_mit_unbekanntem_repo_wird_abgelehnt(angemeldet, monkeypatch):
     async def kein_repo(self, full_name):
         return None
-    monkeypatch.setattr(github.github, "enabled", True)
+    settings.set_many({"github_token": "ghp_test"})
     monkeypatch.setattr(github.GitHubClient, "get_repo", kein_repo)
     resp = angemeldet.post("/api/projects", json={
         "name": "P", "repo_full_name": "oliverhees/gibtsnicht"})
@@ -119,7 +118,7 @@ def test_projekt_mit_unbekanntem_repo_wird_abgelehnt(angemeldet, monkeypatch):
 def test_projekt_mit_vorhandenem_repo_wird_angelegt(angemeldet, monkeypatch):
     async def repo_da(self, full_name):
         return {"full_name": full_name}
-    monkeypatch.setattr(github.github, "enabled", True)
+    settings.set_many({"github_token": "ghp_test"})
     monkeypatch.setattr(github.GitHubClient, "get_repo", repo_da)
     resp = angemeldet.post("/api/projects", json={
         "name": "Content Factory", "briefing": "Los geht's",
@@ -138,7 +137,7 @@ def test_repo_wird_bei_bedarf_angelegt(angemeldet, monkeypatch):
         gesehen["private"] = private
         return {"full_name": f"oliverhees/{name}"}
 
-    monkeypatch.setattr(github.github, "enabled", True)
+    settings.set_many({"github_token": "ghp_test"})
     monkeypatch.setattr(github.GitHubClient, "create_repo", anlegen)
     resp = angemeldet.post("/api/projects", json={
         "name": "Content Factory", "create_repo": True})

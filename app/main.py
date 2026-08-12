@@ -6,13 +6,15 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import auth, preflight, store
+from . import auth, preflight, settings, store
 from .bus import bus
-from .config import PHASES, build_team, env
+from .config import PHASES, PROVIDERS, build_team, env
+from .coolify import CoolifyError, coolify
 from .github import GitHubError, github, slugify_repo_name, valid_full_name
 from .ingest import cleanup, clone_repo, pack_project
 from .mentions import answer_user_mention, extract_mentions
 from .pipeline import meeting
+from .plane import plane
 from .security import RepoUrlError, redact, validate_repo_url
 
 app = FastAPI(title="KI-Agentur Boardroom")
@@ -58,6 +60,27 @@ class ProjectRequest(BaseModel):
 class StartRequest(BaseModel):
     project_id: str
     briefing: str = ""
+
+
+class SettingsRequest(BaseModel):
+    values: dict[str, str]
+
+
+class AgentRequest(BaseModel):
+    name: str | None = None
+    tagline: str | None = None
+    color: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    system_prompt: str | None = None
+    is_dev: bool | None = None
+    is_chairman: bool | None = None
+    enabled: bool | None = None
+
+
+class DeployRequest(BaseModel):
+    app_uuid: str = ""
+    force: bool = False
 
 
 # ---------------------------------------------------------------- Guard
@@ -113,6 +136,100 @@ async def healthz() -> JSONResponse:
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(os.path.join(STATIC, "index.html"))
+
+
+@app.get("/settings")
+async def settings_page() -> FileResponse:
+    return FileResponse(os.path.join(STATIC, "settings.html"))
+
+
+# ---------------------------------------------------------------- Einstellungen
+@app.get("/api/settings")
+async def read_settings() -> JSONResponse:
+    entries = await settings.a_public_view()
+    groups: list[str] = []
+    for entry in entries:
+        if entry["group"] not in groups:
+            groups.append(entry["group"])
+    return JSONResponse({"settings": entries, "groups": groups})
+
+
+@app.put("/api/settings")
+async def write_settings(req: SettingsRequest) -> JSONResponse:
+    await settings.a_set_many(req.values)
+    meeting.reload_team()   # geänderte Prompts/Modelle sofort übernehmen
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/agents")
+async def read_agents() -> JSONResponse:
+    return JSONResponse({
+        "agents": await settings.a_agents(),
+        "providers": [{"id": key, "label": value["label"]}
+                      for key, value in PROVIDERS.items()],
+    })
+
+
+@app.put("/api/agents/{agent_id}")
+async def write_agent(agent_id: str, req: AgentRequest) -> JSONResponse:
+    fields = {k: v for k, v in req.model_dump().items() if v is not None}
+    if not fields:
+        return JSONResponse({"error": "Nichts zu ändern."}, status_code=422)
+    if fields.get("provider") and fields["provider"] not in PROVIDERS:
+        return JSONResponse({"error": f"Unbekannter Provider "
+                                      f"'{fields['provider']}'."},
+                            status_code=422)
+    if not await settings.a_save_agent(agent_id, fields):
+        return JSONResponse({"error": "Agent unbekannt."}, status_code=404)
+    meeting.reload_team()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/agents/reset")
+async def reset_agents() -> JSONResponse:
+    await settings.a_reset_agents()
+    meeting.reload_team()
+    return JSONResponse({"ok": True})
+
+
+# ---------------------------------------------------------------- Integrationen
+@app.get("/api/integrations")
+async def integrations() -> JSONResponse:
+    """Ein Klick, drei Verbindungstests – damit klar ist, was wirklich hängt."""
+    async def github_check() -> dict:
+        if not github.enabled:
+            return {"ok": False, "detail": "Kein Token hinterlegt."}
+        try:
+            user = await github.me()
+        except GitHubError as exc:
+            return {"ok": False, "detail": str(exc)}
+        return {"ok": True, "detail": f"Angemeldet als {user.get('login', '?')}."}
+
+    plane_ok, plane_detail = await plane.check()
+    coolify_ok, coolify_detail = await coolify.check()
+    return JSONResponse({
+        "github": await github_check(),
+        "plane": {"ok": plane_ok, "detail": plane_detail},
+        "coolify": {"ok": coolify_ok, "detail": coolify_detail},
+    })
+
+
+@app.get("/api/coolify/applications")
+async def coolify_applications() -> JSONResponse:
+    try:
+        return JSONResponse({"applications": await coolify.applications()})
+    except CoolifyError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=422)
+
+
+@app.post("/api/coolify/deploy")
+async def coolify_deploy(req: DeployRequest) -> JSONResponse:
+    try:
+        result = await coolify.deploy(req.app_uuid.strip(), req.force)
+    except CoolifyError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=422)
+    await bus.system(f"Coolify-Deployment ausgelöst: {result}")
+    return JSONResponse({"ok": True, "result": result})
 
 
 @app.get("/api/team")

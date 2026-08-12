@@ -22,11 +22,13 @@ import json
 import os
 import shutil
 
+from . import settings
 from .bus import bus
 from .config import env
 
+# Deployment-Sache, nicht Einstellungssache: Pfad, Timeout und Toolrechte
+# bleiben in der .env, damit sie niemand über das UI aufweichen kann.
 CLAUDE_BIN = env("CLAUDE_CODE_BIN", "claude")
-CLAUDE_CODE_MODEL = env("CLAUDE_CODE_MODEL", "")  # leer = Claude-Code-Default
 TIMEOUT_SECONDS = int(env("CLAUDE_CODE_TIMEOUT", "900"))
 
 # Toolprofile. "review" darf nur lesen – das ist der Modus, in dem heute
@@ -46,6 +48,10 @@ def available() -> bool:
 def _subprocess_env() -> dict:
     e = os.environ.copy()
     e.pop("ANTHROPIC_API_KEY", None)  # Subscription erzwingen
+    # Token kann aus den Einstellungen kommen statt aus der Prozess-Umgebung.
+    oauth = settings.get("claude_code_oauth_token")
+    if oauth:
+        e["CLAUDE_CODE_OAUTH_TOKEN"] = oauth
     return e
 
 
@@ -89,8 +95,9 @@ async def stream(prompt: str, *, msg_id: str, agent_id: str,
     cmd = [CLAUDE_BIN, "-p",
            "--output-format", "stream-json",
            "--verbose", "--include-partial-messages"]
-    if CLAUDE_CODE_MODEL:
-        cmd += ["--model", CLAUDE_CODE_MODEL]
+    model = settings.get("claude_code_model")
+    if model:
+        cmd += ["--model", model]
     if profile and cwd:
         tools = TOOL_PROFILES.get(profile)
         if not tools:

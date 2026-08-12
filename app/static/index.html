@@ -34,6 +34,10 @@ header{
   letter-spacing:.14em; font-size:13px; white-space:nowrap}
 .wordmark b{color:var(--accent); font-weight:600}
 .agenda{display:flex; gap:4px 14px; flex-wrap:wrap; align-items:center}
+.settings-link{margin-left:auto; color:var(--muted); text-decoration:none;
+  font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.08em;
+  white-space:nowrap}
+.settings-link:hover{color:var(--accent)}
 .agenda-item{font-family:"IBM Plex Mono",monospace; font-size:11.5px;
   color:var(--muted); display:flex; align-items:center; gap:6px;
   letter-spacing:.04em; white-space:nowrap}
@@ -188,6 +192,7 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
 <header>
   <div class="wordmark">BOARD<b>ROOM</b></div>
   <nav class="agenda" id="agenda" aria-label="Meeting-Agenda"></nav>
+  <a class="settings-link" href="/settings">EINSTELLUNGEN</a>
 </header>
 
 <main>

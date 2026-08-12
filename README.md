@@ -4,14 +4,29 @@ Sechs KI-Spezialisten zerlegen dein Projekt live in einem Team-Chat, du sitzt mi
 
 ## Das Team
 
+Die Startaufstellung – **alles davon ist unter `/settings` änderbar**: Modell, Provider, Prompt, Farbe, Rolle.
+
 | Agent | Rolle | Modell | Quelle |
 |---|---|---|---|
-| Claude | Senior Dev + Chairman | claude-sonnet-4-6 | Anthropic API |
-| GPT | Senior Dev | (in .env eintragen) | OpenAI API |
+| Claude | Senior Dev + Chairman | claude-sonnet-4-6 | Claude Code (Subscription) |
+| GPT | Senior Dev | gpt-5.2 | OpenAI API |
 | Kimi | Senior Dev | Kimi K3 | HostYourAI |
 | Qwen | Architektur & Tooling | Qwen3.5 | HostYourAI |
 | DeepSeek | Security & Reasoning | DeepSeek V4 Pro | HostYourAI |
 | GLM | Devil's Advocate | GLM 5.2 | HostYourAI |
+
+## Einstellungsseite
+
+Unter **`/settings`** wird das System konfiguriert, ohne die `.env` anzufassen:
+
+- **Pro Agent:** Provider (Claude Code, Anthropic, OpenAI, HostYourAI), Modell, eigener Prompt, Name, Farbe, aktiv/inaktiv, Teilnahme am Kreuzverhör, wer Chairman ist
+- **Grundregeln:** der Text, der *vor* jedem Agenten-Prompt steht – dort setzt du den Ton fürs ganze Board. Die @Mention-Regeln stehen daneben, die Handles setzt das System selbst ein
+- **Zugänge:** alle API-Keys, Base-URLs und der Memory-Proxy
+- **Plane & Coolify:** URL, Token, Workspace, Projekt – mit Verbindungstest
+- **Limits:** Kontextbudget, Tokenbudgets, Diskussionsrunden
+- **„Modelle vom Router laden"** holt den echten Modellkatalog von HostYourAI in die Auswahlfelder – Schluss mit geratenen Slugs
+
+Die Reihenfolge der Wahrheit ist **Datenbank → `.env` → Default**. Bestehende Deployments laufen also unverändert weiter, bis du im UI etwas überschreibst. Geheimnisse verlassen den Server nie im Klartext: die API meldet nur „gesetzt: ja/nein", ein leeres Feld heißt „unverändert lassen".
 
 ## Projekte – GitHub ist das Gate
 
@@ -130,6 +145,12 @@ pytest -q
 ```
 
 Abgedeckt sind die Stellen, an denen ein Fehler teuer wird: Repo-URL-Validierung, Session-Tokens und Login-Sperre, der Türsteher vor HTTP und WebSocket, das GitHub-Gate beim Projektanlegen, die Persistenz über einen Neustart hinweg, der Mention-Parser und die Issue-Extraktion aus der Chairman-Antwort.
+
+## Coolify als Realitätscheck (optional)
+
+Base-URL und API-Token unter `/settings` hinterlegen (Coolify → Keys & Tokens → API tokens). Damit kann der Boardroom Anwendungen auflisten (`GET /api/coolify/applications`) und ein Deployment auslösen (`POST /api/coolify/deploy`).
+
+Bewusst die REST-API und nicht MCP: der Boardroom ist selbst ein Server, der HTTP spricht. Ein MCP-Server dazwischen wäre ein zusätzlicher Prozess, eine zusätzliche Auth-Schicht und ein zusätzlicher Ausfallpunkt für drei Endpunkte, die wir direkt aufrufen können.
 
 ## TencentDB Agent Memory (optional, empfohlen ab v1.1)
 

@@ -14,9 +14,8 @@ import shutil
 import httpx
 import litellm
 
-from . import claude_code
-from .config import (CLAUDE_TRANSPORT, HYAI_API_KEY, HYAI_BASE_URL,
-                     AgentSpec, build_team, env)
+from . import claude_code, settings
+from .config import AgentSpec, build_team, env
 
 PROBE_TIMEOUT = int(env("PREFLIGHT_TIMEOUT", "30"))
 CHECK_ON_START = env("PREFLIGHT_ON_START", "1") == "1"
@@ -29,13 +28,14 @@ def _bare_model(model: str) -> str:
 
 async def router_models() -> tuple[list[str], str]:
     """Verfügbare Slugs beim HostYourAI-Router. (Liste, Fehlertext)."""
-    if not HYAI_API_KEY:
-        return [], "HYAI_API_KEY ist nicht gesetzt."
-    url = f"{HYAI_BASE_URL.rstrip('/')}/models"
+    key = settings.get("hyai_api_key")
+    if not key:
+        return [], "HostYourAI API-Key ist nicht gesetzt."
+    url = f"{settings.get('hyai_base_url').rstrip('/')}/models"
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.get(
-                url, headers={"Authorization": f"Bearer {HYAI_API_KEY}"})
+                url, headers={"Authorization": f"Bearer {key}"})
             resp.raise_for_status()
             payload = resp.json()
     except Exception as exc:
@@ -55,9 +55,9 @@ async def _probe_claude_code() -> tuple[bool, str]:
     Abo-Kontingent verbrennen. Binary + Auth reichen als Aussage."""
     if not shutil.which(claude_code.CLAUDE_BIN):
         return False, f"CLI '{claude_code.CLAUDE_BIN}' nicht im PATH."
-    if not env("CLAUDE_CODE_OAUTH_TOKEN"):
-        return False, ("CLAUDE_CODE_OAUTH_TOKEN fehlt – "
-                       "auf deinem Rechner 'claude setup-token' ausführen.")
+    if not settings.get("claude_code_oauth_token"):
+        return False, ("Claude-Code-Token fehlt – auf deinem Rechner "
+                       "'claude setup-token' ausführen und hinterlegen.")
     try:
         proc = await asyncio.create_subprocess_exec(
             claude_code.CLAUDE_BIN, "--version",
@@ -97,7 +97,8 @@ async def check() -> dict:
     catalog, catalog_error = await router_models()
 
     async def one(spec: AgentSpec) -> dict:
-        uses_cli = spec.id == "claude" and CLAUDE_TRANSPORT != "api"
+        uses_cli = (spec.provider == "claude-code"
+                    and settings.get("claude_transport") != "api")
         if uses_cli:
             ok, detail = await _probe_claude_code()
             model_label = "Claude Code (Subscription)"

@@ -42,6 +42,23 @@ CREATE TABLE IF NOT EXISTS events (
     ts         REAL NOT NULL,
     payload    TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agents (
+    id            TEXT PRIMARY KEY,
+    position      INTEGER NOT NULL DEFAULT 0,
+    name          TEXT NOT NULL,
+    tagline       TEXT NOT NULL DEFAULT '',
+    color         TEXT NOT NULL DEFAULT '#888888',
+    provider      TEXT NOT NULL DEFAULT 'hostyourai',
+    model         TEXT NOT NULL DEFAULT '',
+    system_prompt TEXT NOT NULL DEFAULT '',
+    is_dev        INTEGER NOT NULL DEFAULT 0,
+    is_chairman   INTEGER NOT NULL DEFAULT 0,
+    enabled       INTEGER NOT NULL DEFAULT 1
+);
 CREATE INDEX IF NOT EXISTS idx_meetings_project ON meetings(project_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_meeting ON events(meeting_id, seq);
 """
@@ -66,6 +83,11 @@ def _connect() -> sqlite3.Connection:
     conn.commit()
     _conn = conn
     return conn
+
+
+def connect() -> sqlite3.Connection:
+    """Gemeinsame Verbindung – settings.py legt seine Tabellen daneben."""
+    return _connect()
 
 
 def reset_for_tests(path: str) -> None:

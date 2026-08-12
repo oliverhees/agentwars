@@ -12,11 +12,19 @@ import re
 
 import httpx
 
-from .config import env
+from . import settings
 
-GITHUB_TOKEN = env("GITHUB_TOKEN")
-GITHUB_API = env("GITHUB_API", "https://api.github.com").rstrip("/")
-GITHUB_HOST = env("GITHUB_HOST", "github.com")
+
+def token() -> str:
+    return settings.get("github_token")
+
+
+def api_url() -> str:
+    return settings.get("github_api").rstrip("/")
+
+
+def host() -> str:
+    return settings.get("github_host")
 
 # owner/repo – GitHub erlaubt in beiden Teilen nur diese Zeichen.
 FULL_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
@@ -38,12 +46,13 @@ def slugify_repo_name(name: str) -> str:
 
 
 class GitHubClient:
-    def __init__(self) -> None:
-        self.enabled = bool(GITHUB_TOKEN)
+    @property
+    def enabled(self) -> bool:
+        return bool(token())
 
     def _headers(self) -> dict:
         return {
-            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Authorization": f"Bearer {token()}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
@@ -58,7 +67,7 @@ class GitHubClient:
         async with httpx.AsyncClient(timeout=30) as client:
             try:
                 return await client.request(
-                    method, f"{GITHUB_API}{path}",
+                    method, f"{api_url()}{path}",
                     headers=self._headers(), **kwargs)
             except httpx.HTTPError as exc:
                 raise GitHubError(f"GitHub nicht erreichbar ({exc}).") from exc
@@ -132,11 +141,11 @@ class GitHubClient:
         """URL mit Token, damit auch private Repos geklont werden können.
         Niemals ungefiltert loggen – security.redact() nutzen."""
         self._require()
-        return f"https://x-access-token:{GITHUB_TOKEN}@{GITHUB_HOST}/{full_name}.git"
+        return f"https://x-access-token:{token()}@{host()}/{full_name}.git"
 
     @staticmethod
     def web_url(full_name: str) -> str:
-        return f"https://{GITHUB_HOST}/{full_name}"
+        return f"https://{host()}/{full_name}"
 
 
 github = GitHubClient()

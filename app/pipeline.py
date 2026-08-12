@@ -15,10 +15,9 @@ import uuid
 
 import litellm
 
-from . import claude_code, mentions, preflight
+from . import claude_code, mentions, preflight, settings
 from .bus import bus
-from .config import (CHAIRMAN_ID, CLAUDE_TRANSPORT, MAX_TOKENS_CHAIRMAN,
-                     MAX_TOKENS_REVIEW, build_team)
+from .config import build_team
 from .plane import plane
 
 litellm.drop_params = True  # unbekannte Params still verwerfen (Router-Kompatibilität)
@@ -29,20 +28,37 @@ class Meeting:
 
     def __init__(self) -> None:
         self.running = False
-        self.team = build_team()
+        self._team: dict = {}
         self.repo_dir: str | None = None
 
+    @property
+    def team(self) -> dict:
+        """Wird beim ersten Zugriff aufgebaut – auch außerhalb eines Meetings,
+        damit @Erwähnungen im Leerlauf funktionieren."""
+        if not self._team:
+            self._team = build_team()
+        return self._team
+
+    def reload_team(self) -> None:
+        """Aufstellung frisch aus den Einstellungen ziehen."""
+        self._team = build_team()
+
     def _use_claude_code(self, agent_id: str) -> bool:
-        if agent_id != CHAIRMAN_ID:
+        """Nicht mehr an einen festen Agenten gebunden: wer als Provider
+        'claude-code' eingestellt hat, läuft über die Subscription."""
+        spec = self.team.get(agent_id)
+        if not spec or spec.provider != "claude-code":
             return False
-        if CLAUDE_TRANSPORT == "api":
+        if settings.get("claude_transport") == "api":
             return False
         return claude_code.available()
 
     # ------------------------------------------------------------ LLM-Call
     async def _stream_agent(self, agent_id: str, user_content: str,
-                            max_tokens: int = MAX_TOKENS_REVIEW) -> str:
+                            max_tokens: int | None = None) -> str:
         """Streamt eine Antwort Token für Token in den Team-Chat."""
+        if max_tokens is None:
+            max_tokens = settings.get_int("max_tokens_review")
         spec = self.team[agent_id]
         msg_id = uuid.uuid4().hex[:12]
         await bus.agent_status(agent_id, "typing")
@@ -68,12 +84,20 @@ class Meeting:
                 return full
             except Exception as exc:
                 await bus.system(f"Claude Code nicht erreichbar ({exc}) – "
-                                 "Claude fällt auf die API zurück.")
+                                 f"{spec.name} fällt auf die Anthropic-API zurück.")
+
+        # Der claude-code-Provider trägt keinen LiteLLM-Präfix; für den
+        # Fallback muss er zur Anthropic-API umgeschrieben werden.
+        model = spec.model
+        api_key = spec.api_key
+        if spec.provider == "claude-code":
+            model = f"anthropic/{spec.model}"
+            api_key = settings.get("anthropic_api_key")
 
         full = ""
         try:
             kwargs: dict = {
-                "model": spec.model,
+                "model": model,
                 "messages": [
                     {"role": "system", "content": spec.system_prompt},
                     {"role": "user", "content": user_content},
@@ -81,8 +105,8 @@ class Meeting:
                 "max_tokens": max_tokens,
                 "stream": True,
             }
-            if spec.api_key:
-                kwargs["api_key"] = spec.api_key
+            if api_key:
+                kwargs["api_key"] = api_key
             if spec.api_base:
                 kwargs["api_base"] = spec.api_base
             stream = await litellm.acompletion(**kwargs)
@@ -123,7 +147,7 @@ class Meeting:
             return
         broken = [a for a in report["agents"] if not a["ok"]]
         if not broken:
-            await bus.system("Preflight: alle sechs Agenten antworten.")
+            await bus.system(f"Preflight: alle {len(report['agents'])} Agenten antworten.")
             return
         for agent in broken:
             hint = f" · {agent['hint']}" if agent["hint"] else ""
@@ -146,8 +170,14 @@ class Meeting:
                   repo_dir: str | None = None) -> None:
         self.running = True
         self.repo_dir = repo_dir
-        if self._use_claude_code(CHAIRMAN_ID):
-            await bus.system("Claude läuft über Claude Code – "
+        # Aufstellung, Prompts und Modelle können sich seit dem letzten
+        # Meeting geändert haben – frisch laden statt zwischenspeichern.
+        self.reload_team()
+        chairman = settings.chairman_id()
+        via_cli = [self.team[a].name for a in self.team
+                   if self._use_claude_code(a)]
+        if via_cli:
+            await bus.system(f"{', '.join(via_cli)} läuft über Claude Code – "
                              "deine Subscription ist im Einsatz.")
         try:
             if preflight.CHECK_ON_START:
@@ -160,7 +190,7 @@ class Meeting:
 
             # ---------------- Phase 1: Einzelgutachten (alle parallel)
             await bus.phase("gutachten", "active")
-            await bus.system("Phase 1 – Einzelgutachten: Alle sechs nehmen sich das Projekt vor.")
+            await bus.system(f"Phase 1 – Einzelgutachten: Alle {len(self.team)} nehmen sich das Projekt vor.")
             notes = await self._founder_notes()
             prompt1 = base_context + notes + (
                 "\n\nErstelle jetzt dein unabhängiges Gutachten zu diesem Projekt "
@@ -220,7 +250,8 @@ class Meeting:
                 "Maximal 12 Issues, nach Wichtigkeit sortiert."
             )
             roadmap = await self._stream_agent(
-                CHAIRMAN_ID, chairman_prompt, max_tokens=MAX_TOKENS_CHAIRMAN
+                chairman, chairman_prompt,
+                max_tokens=settings.get_int("max_tokens_chairman")
             )
             await bus.phase("synthese", "done")
 

@@ -1,15 +1,67 @@
-"""Mention-Parser, Team-Konsistenz und der Issue-Block des Chairmans."""
-from app.config import AGENT_IDS, build_team
-from app.mentions import HANDLES, extract_mentions
+"""Team-Aufbau, Mention-Parser und der Issue-Block des Chairmans."""
+import pytest
+
+from app import settings, store
+from app.config import DEFAULT_AGENTS, build_team
+from app.mentions import extract_mentions
 from app.pipeline import Meeting
 
 
-def test_handles_decken_das_team_ab():
-    assert set(HANDLES) == set(build_team()) == set(AGENT_IDS)
+@pytest.fixture(autouse=True)
+def db(tmp_path):
+    store.reset_for_tests(str(tmp_path / "board.db"))
+    settings.invalidate()
+    yield
+    settings.invalidate()
 
 
-def test_mention_wird_erkannt():
-    assert extract_mentions("@gpt bestätigst du das?", "claude") == ["gpt"]
+def test_standardaufstellung_wird_gesaet():
+    team = build_team()
+    assert set(team) == {a["id"] for a in DEFAULT_AGENTS}
+    assert settings.chairman_id() == "claude"
+
+
+def test_handles_folgen_dem_team():
+    assert extract_mentions("@gpt schau mal", "claude") == ["gpt"]
+    settings.save_agent("gpt", {"enabled": False})
+    assert extract_mentions("@gpt schau mal", "claude") == []
+
+
+def test_prompt_setzt_sich_aus_grundregeln_und_rolle_zusammen():
+    settings.set_many({"base_prompt": "GRUNDREGEL",
+                       "mention_rules": "HANDLES: {handles}"})
+    settings.save_agent("qwen", {"system_prompt": "ROLLE"})
+    prompt = build_team()["qwen"].system_prompt
+    assert prompt.startswith("GRUNDREGEL")
+    assert "ROLLE" in prompt
+    assert "@qwen" in prompt   # Platzhalter wurde ersetzt
+
+
+def test_modell_bekommt_den_provider_praefix():
+    settings.save_agent("kimi", {"provider": "openai", "model": "gpt-test"})
+    assert build_team()["kimi"].model == "openai/gpt-test"
+
+
+def test_memory_proxy_leitet_nur_router_modelle_um():
+    settings.set_many({"memory_proxy_base_url": "http://memory:8088/v1",
+                       "openai_api_key": "sk-test"})
+    team = build_team()
+    assert team["kimi"].api_base == "http://memory:8088/v1"
+    assert team["gpt"].api_base is None
+
+
+def test_nur_ein_chairman():
+    settings.save_agent("glm", {"is_chairman": True})
+    assert settings.chairman_id() == "glm"
+    assert sum(a["is_chairman"] for a in settings.agents()) == 1
+
+
+def test_zuruecksetzen_stellt_die_standardprompts_wieder_her():
+    settings.save_agent("glm", {"system_prompt": "kaputt", "enabled": False})
+    settings.reset_agents()
+    glm = [a for a in settings.agents() if a["id"] == "glm"][0]
+    assert glm["enabled"] == 1
+    assert "Devil's Advocate" in glm["system_prompt"]
 
 
 def test_selbsterwaehnung_faellt_raus():
@@ -17,8 +69,7 @@ def test_selbsterwaehnung_faellt_raus():
 
 
 def test_dedupliziert_und_deckelt_bei_zwei():
-    text = "@gpt @kimi @gpt @qwen @glm"
-    assert extract_mentions(text, "claude") == ["gpt", "kimi"]
+    assert extract_mentions("@gpt @kimi @gpt @qwen @glm", "claude") == ["gpt", "kimi"]
 
 
 def test_gross_kleinschreibung_egal():

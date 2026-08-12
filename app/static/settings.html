@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Boardroom · Einstellungen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0E0F12;--panel:#16181D;--panel2:#1B1E24;--line:#262932;
+  --text:#E9E7E2;--muted:#8B8F98;--accent:#F97216;--radius:10px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);
+  font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;
+  line-height:1.55;min-height:100vh}
+.mono{font-family:"IBM Plex Mono",monospace}
+
+header{display:flex;align-items:center;gap:16px;padding:10px 16px;
+  border-bottom:1px solid var(--line);background:var(--panel);
+  position:sticky;top:0;z-index:5;flex-wrap:wrap}
+.wordmark{font-family:"IBM Plex Mono",monospace;font-weight:600;
+  letter-spacing:.14em;font-size:13px}
+.wordmark b{color:var(--accent)}
+header a{color:var(--muted);text-decoration:none;font-size:12px;
+  font-family:"IBM Plex Mono",monospace;letter-spacing:.06em}
+header a:hover{color:var(--text)}
+header .spacer{flex:1}
+
+main{max-width:920px;margin:0 auto;padding:22px 16px 80px}
+h2{font-family:"IBM Plex Mono",monospace;font-size:11px;
+  letter-spacing:.16em;color:var(--muted);margin:26px 0 12px;
+  font-weight:500;text-transform:uppercase}
+h2:first-child{margin-top:0}
+
+.card{background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:16px;margin-bottom:12px}
+.field{margin-bottom:14px}
+.field:last-child{margin-bottom:0}
+label{display:block;font-family:"IBM Plex Mono",monospace;font-size:11px;
+  letter-spacing:.06em;color:var(--muted);margin-bottom:5px}
+input,textarea,select{width:100%;background:var(--panel2);
+  border:1px solid var(--line);border-radius:8px;color:var(--text);
+  font:inherit;padding:9px 12px;outline:none}
+textarea{min-height:120px;resize:vertical;font-size:14px}
+input:focus,textarea:focus,select:focus{border-color:var(--accent)}
+.help{font-size:12px;color:var(--muted);margin-top:4px}
+.set{color:#7FBF7F}
+.unset{color:var(--muted)}
+
+.agent{border-left:3px solid var(--c,#888)}
+.agent .top{display:flex;gap:10px;align-items:center;margin-bottom:12px;
+  flex-wrap:wrap}
+.agent .handle{font-family:"IBM Plex Mono",monospace;font-weight:600;
+  font-size:13px;color:var(--c,#888)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.flags{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px}
+.flags label{display:flex;align-items:center;gap:7px;margin:0;
+  cursor:pointer;color:var(--muted)}
+.flags input{width:auto;accent-color:var(--accent)}
+
+button{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:12.5px;
+  border:none;border-radius:var(--radius);background:var(--accent);
+  color:#0E0F12;padding:9px 16px;cursor:pointer}
+button.ghost{background:none;border:1px solid var(--line);color:var(--muted)}
+button.ghost:hover{border-color:var(--accent);color:var(--text)}
+button:disabled{opacity:.4;cursor:default}
+button:focus-visible,input:focus-visible,textarea:focus-visible,
+select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+  margin-top:16px}
+
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);
+  border-top:1px solid var(--line);padding:10px 16px
+  calc(10px + env(safe-area-inset-bottom));display:flex;gap:12px;
+  align-items:center;justify-content:center;z-index:6}
+.status{font-family:"IBM Plex Mono",monospace;font-size:12px;
+  color:var(--muted)}
+.status.bad{color:#E06060}
+.status.good{color:#7FBF7F}
+.check{font-family:"IBM Plex Mono",monospace;font-size:12px;
+  line-height:1.8;margin-top:10px}
+.check .ok{color:#7FBF7F}
+.check .bad{color:#E06060}
+@media (max-width:640px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">BOARD<b>ROOM</b></div>
+  <a href="/">← ZURÜCK ZUM BOARD</a>
+  <div class="spacer"></div>
+  <span class="status" id="head"></span>
+</header>
+
+<main>
+  <h2>Das Team</h2>
+  <p class="help" style="margin-bottom:12px">
+    Jeder Agent hat ein eigenes Modell und einen eigenen Prompt. Die
+    Grundregeln darunter stehen vor jedem dieser Prompts – dort setzt du
+    den Ton fürs ganze Board.
+  </p>
+  <div id="agents"></div>
+  <div class="actions">
+    <button id="save-agents">TEAM SPEICHERN</button>
+    <button id="reset-agents" class="ghost">AUF STANDARD ZURÜCKSETZEN</button>
+    <button id="load-models" class="ghost">MODELLE VOM ROUTER LADEN</button>
+  </div>
+  <div class="check" id="models"></div>
+
+  <div id="groups"></div>
+
+  <h2>Verbindungstest</h2>
+  <div class="card">
+    <button id="probe" class="ghost">GITHUB · PLANE · COOLIFY PRÜFEN</button>
+    <div class="check" id="integrations"></div>
+  </div>
+</main>
+
+<div class="bar">
+  <button id="save">ALLES SPEICHERN</button>
+  <span class="status" id="status"></span>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const state = { settings:[], agents:[], providers:[], models:[] };
+
+function say(text, kind){
+  $("status").textContent = text;
+  $("status").className = "status" + (kind ? " " + kind : "");
+}
+
+async function api(method, url, body){
+  const opts = { method, headers:{"Content-Type":"application/json"} };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  if (res.status === 401){ location.href = "/"; throw new Error("Abgemeldet"); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Fehler ${res.status}`);
+  return data;
+}
+
+/* ---------------- Agenten ---------------- */
+function agentCard(a){
+  const options = state.providers.map(p =>
+    `<option value="${esc(p.id)}"${p.id === a.provider ? " selected" : ""}>${esc(p.label)}</option>`).join("");
+  return `
+  <div class="card agent" style="--c:${esc(a.color)}" data-id="${esc(a.id)}">
+    <div class="top">
+      <span class="handle">@${esc(a.id)}</span>
+      <input class="f-name" value="${esc(a.name)}" style="max-width:180px" aria-label="Name">
+      <input class="f-tagline" value="${esc(a.tagline)}" style="flex:1;min-width:160px" aria-label="Rolle">
+      <input class="f-color" type="color" value="${esc(a.color)}" style="width:44px;padding:2px" aria-label="Farbe">
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>PROVIDER</label>
+        <select class="f-provider">${options}</select>
+      </div>
+      <div class="field">
+        <label>MODELL</label>
+        <input class="f-model" value="${esc(a.model)}" list="modellist" autocomplete="off">
+      </div>
+    </div>
+    <div class="field">
+      <label>PROMPT DIESES AGENTEN</label>
+      <textarea class="f-prompt">${esc(a.system_prompt)}</textarea>
+      <div class="help">Kommt nach den Grundregeln. Beschreibt nur die Rolle.</div>
+    </div>
+    <div class="flags">
+      <label><input type="checkbox" class="f-enabled"${a.enabled ? " checked" : ""}> aktiv</label>
+      <label><input type="checkbox" class="f-dev"${a.is_dev ? " checked" : ""}> Kreuzverhör</label>
+      <label><input type="checkbox" class="f-chairman"${a.is_chairman ? " checked" : ""}> Chairman</label>
+    </div>
+  </div>`;
+}
+
+function renderAgents(){
+  $("agents").innerHTML = state.agents.map(agentCard).join("")
+    + '<datalist id="modellist"></datalist>';
+  renderModelList();
+  // Genau ein Chairman – im UI erzwingen, nicht erst beim Speichern.
+  document.querySelectorAll(".f-chairman").forEach(box => {
+    box.onchange = () => {
+      if (!box.checked) return;
+      document.querySelectorAll(".f-chairman").forEach(other => {
+        if (other !== box) other.checked = false;
+      });
+    };
+  });
+}
+
+function renderModelList(){
+  const list = $("modellist");
+  if (list) list.innerHTML = state.models.map(m => `<option value="${esc(m)}"></option>`).join("");
+}
+
+function collectAgents(){
+  return [...document.querySelectorAll(".agent")].map(card => ({
+    id: card.dataset.id,
+    name: card.querySelector(".f-name").value.trim(),
+    tagline: card.querySelector(".f-tagline").value.trim(),
+    color: card.querySelector(".f-color").value,
+    provider: card.querySelector(".f-provider").value,
+    model: card.querySelector(".f-model").value.trim(),
+    system_prompt: card.querySelector(".f-prompt").value,
+    enabled: card.querySelector(".f-enabled").checked,
+    is_dev: card.querySelector(".f-dev").checked,
+    is_chairman: card.querySelector(".f-chairman").checked
+  }));
+}
+
+async function saveAgents(){
+  const agents = collectAgents();
+  if (!agents.some(a => a.is_chairman && a.enabled))
+    throw new Error("Genau ein aktiver Agent muss Chairman sein.");
+  if (!agents.some(a => a.enabled))
+    throw new Error("Mindestens ein Agent muss aktiv sein.");
+  // Chairman zuerst, sonst hebt der Server die Markierung gleich wieder auf.
+  agents.sort((a, b) => Number(b.is_chairman) - Number(a.is_chairman));
+  for (const a of agents){
+    const { id, ...fields } = a;
+    await api("PUT", `/api/agents/${encodeURIComponent(id)}`, fields);
+  }
+}
+
+/* ---------------- Einstellungen ---------------- */
+function fieldHtml(entry){
+  const id = "s-" + entry.key;
+  const help = entry.help ? `<div class="help">${esc(entry.help)}</div>` : "";
+  if (entry.kind === "textarea"){
+    return `<div class="field"><label for="${id}">${esc(entry.label)}</label>
+      <textarea id="${id}" data-key="${esc(entry.key)}">${esc(entry.value)}</textarea>${help}</div>`;
+  }
+  if (entry.kind === "secret"){
+    const marker = entry.is_set
+      ? '<span class="set">gesetzt</span> – leer lassen heißt unverändert'
+      : '<span class="unset">nicht gesetzt</span>';
+    return `<div class="field"><label for="${id}">${esc(entry.label)}</label>
+      <input id="${id}" type="password" data-key="${esc(entry.key)}"
+        data-secret="1" autocomplete="new-password" placeholder="••••••••">
+      <div class="help">${marker}${entry.help ? " · " + esc(entry.help) : ""}</div></div>`;
+  }
+  const type = entry.kind === "number" ? "number" : "text";
+  return `<div class="field"><label for="${id}">${esc(entry.label)}</label>
+    <input id="${id}" type="${type}" data-key="${esc(entry.key)}"
+      value="${esc(entry.value)}">${help}</div>`;
+}
+
+function renderSettings(groups){
+  $("groups").innerHTML = groups.map(group => `
+    <h2>${esc(group)}</h2>
+    <div class="card">
+      ${state.settings.filter(s => s.group === group).map(fieldHtml).join("")}
+    </div>`).join("");
+}
+
+function collectSettings(){
+  const values = {};
+  document.querySelectorAll("[data-key]").forEach(el => {
+    const raw = el.value;
+    // Leeres Geheimnis = nicht angefasst, der Server lässt es dann stehen.
+    if (el.dataset.secret && !raw) return;
+    values[el.dataset.key] = raw;
+  });
+  return values;
+}
+
+/* ---------------- Aktionen ---------------- */
+async function loadAll(){
+  const [cfg, team] = await Promise.all([
+    api("GET", "/api/settings"), api("GET", "/api/agents")]);
+  state.settings = cfg.settings;
+  state.agents = team.agents;
+  state.providers = team.providers;
+  renderAgents();
+  renderSettings(cfg.groups);
+  $("head").textContent = `${state.agents.filter(a => a.enabled).length} Agenten aktiv`;
+}
+
+$("save").onclick = async () => {
+  $("save").disabled = true;
+  say("Speichere …");
+  try{
+    await saveAgents();
+    await api("PUT", "/api/settings", { values: collectSettings() });
+    await loadAll();
+    say("Gespeichert.", "good");
+  }catch(err){ say(err.message, "bad"); }
+  finally{ $("save").disabled = false; }
+};
+
+$("save-agents").onclick = async () => {
+  say("Speichere Team …");
+  try{ await saveAgents(); await loadAll(); say("Team gespeichert.", "good"); }
+  catch(err){ say(err.message, "bad"); }
+};
+
+$("reset-agents").onclick = async () => {
+  if (!confirm("Team auf die Standardaufstellung zurücksetzen? Deine Prompts gehen verloren.")) return;
+  try{ await api("POST", "/api/agents/reset"); await loadAll();
+       say("Team zurückgesetzt.", "good"); }
+  catch(err){ say(err.message, "bad"); }
+};
+
+$("load-models").onclick = async () => {
+  $("load-models").disabled = true;
+  $("models").innerHTML = '<div>Frage den Router …</div>';
+  try{
+    const data = await api("GET", "/api/preflight");
+    state.models = data.router_models || [];
+    renderModelList();
+    $("models").innerHTML = data.router_error
+      ? `<div class="bad">${esc(data.router_error)}</div>`
+      : `<div class="ok">${state.models.length} Modelle im Katalog – sie stehen jetzt in der Auswahl der Modellfelder.</div>`
+        + data.agents.map(a => `<div class="${a.ok ? "ok" : "bad"}">${a.ok ? "✓" : "✕"} ${esc(a.name)} · ${esc(a.model)} — ${esc(a.detail)}${a.hint ? " · " + esc(a.hint) : ""}</div>`).join("");
+  }catch(err){ $("models").innerHTML = `<div class="bad">${esc(err.message)}</div>`; }
+  finally{ $("load-models").disabled = false; }
+};
+
+$("probe").onclick = async () => {
+  $("probe").disabled = true;
+  $("integrations").innerHTML = "<div>Teste …</div>";
+  try{
+    const data = await api("GET", "/api/integrations");
+    $("integrations").innerHTML = ["github", "plane", "coolify"].map(key => {
+      const r = data[key];
+      return `<div class="${r.ok ? "ok" : "bad"}">${r.ok ? "✓" : "✕"} ${key} — ${esc(r.detail)}</div>`;
+    }).join("");
+  }catch(err){ $("integrations").innerHTML = `<div class="bad">${esc(err.message)}</div>`; }
+  finally{ $("probe").disabled = false; }
+};
+
+loadAll().catch(err => say(err.message, "bad"));
+</script>
+</body>
+</html>

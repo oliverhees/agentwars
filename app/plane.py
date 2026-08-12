@@ -1,34 +1,46 @@
-"""Plane-Integration: Roadmap-Findings werden zu Issues, Updates zu Kommentaren."""
+"""Plane-Integration: Roadmap-Findings werden zu Issues, Updates zu Kommentaren.
+
+Die Zugangsdaten kommen zur Laufzeit aus den Einstellungen, damit Plane
+auf der Einstellungsseite hinterlegt werden kann statt nur in der `.env`.
+"""
 import html
 
 import httpx
 
-from .config import PLANE_API_KEY, PLANE_BASE_URL, PLANE_PROJECT_ID, PLANE_WORKSPACE
+from . import settings
 
 PRIORITIES = {"urgent", "high", "medium", "low", "none"}
 
 
+def _md_to_html(text: str) -> str:
+    return "<p>" + html.escape(text or "").replace("\n", "<br/>") + "</p>"
+
+
 class PlaneClient:
-    def __init__(self) -> None:
-        self.enabled = bool(PLANE_BASE_URL and PLANE_API_KEY
-                            and PLANE_WORKSPACE and PLANE_PROJECT_ID)
-        self.base = (
-            f"{PLANE_BASE_URL.rstrip('/')}/api/v1/workspaces/"
-            f"{PLANE_WORKSPACE}/projects/{PLANE_PROJECT_ID}"
-        )
-        self.headers = {"X-API-Key": PLANE_API_KEY,
-                        "Content-Type": "application/json"}
+    @property
+    def enabled(self) -> bool:
+        return all(settings.get(key) for key in
+                   ("plane_base_url", "plane_api_key",
+                    "plane_workspace", "plane_project_id"))
+
+    @property
+    def base(self) -> str:
+        return (f"{settings.get('plane_base_url').rstrip('/')}"
+                f"/api/v1/workspaces/{settings.get('plane_workspace')}"
+                f"/projects/{settings.get('plane_project_id')}")
+
+    @property
+    def headers(self) -> dict:
+        return {"X-API-Key": settings.get("plane_api_key"),
+                "Content-Type": "application/json"}
 
     async def create_issue(self, name: str, description_md: str,
                            priority: str = "medium") -> dict:
         if priority not in PRIORITIES:
             priority = "medium"
-        body = {
-            "name": name[:250],
-            "description_html": "<p>" + html.escape(description_md)
-            .replace("\n", "<br/>") + "</p>",
-            "priority": priority,
-        }
+        body = {"name": name[:250],
+                "description_html": _md_to_html(description_md),
+                "priority": priority}
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(f"{self.base}/issues/",
                                      json=body, headers=self.headers)
@@ -36,12 +48,26 @@ class PlaneClient:
             return resp.json()
 
     async def add_comment(self, issue_id: str, comment_md: str) -> None:
-        body = {"comment_html": "<p>" + html.escape(comment_md)
-                .replace("\n", "<br/>") + "</p>"}
+        body = {"comment_html": _md_to_html(comment_md)}
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(f"{self.base}/issues/{issue_id}/comments/",
                                      json=body, headers=self.headers)
             resp.raise_for_status()
+
+    async def check(self) -> tuple[bool, str]:
+        """Verbindungstest für die Einstellungsseite."""
+        if not self.enabled:
+            return False, "Nicht vollständig konfiguriert."
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.get(f"{self.base}/issues/",
+                                        params={"per_page": 1},
+                                        headers=self.headers)
+        except httpx.HTTPError as exc:
+            return False, f"Plane nicht erreichbar ({exc})."
+        if resp.status_code >= 400:
+            return False, f"Plane antwortet mit {resp.status_code}."
+        return True, "Verbindung steht."
 
 
 plane = PlaneClient()
