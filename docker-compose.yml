@@ -5,8 +5,15 @@ services:
       - "8000:8000"
     env_file: .env
     restart: unless-stopped
+    volumes:
+      # Projekte, Meetings und der komplette Verlauf liegen hier.
+      # Ohne dieses Volume ist nach jedem Redeploy alles weg.
+      - boardroom-data:/data
 
   # Optional: TencentDB Agent Memory (Team-Gedächtnis, MIT-Lizenz)
   # Setup & aktuelle Image-Namen: https://github.com/TencentCloud/TencentDB-Agent-Memory
   # Danach in der .env MEMORY_PROXY_BASE_URL auf den Memory-Proxy zeigen lassen –
   # die HostYourAI-Agenten laufen dann automatisch durch das Gedächtnis.
+
+volumes:
+  boardroom-data:

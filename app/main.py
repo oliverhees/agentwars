@@ -1,4 +1,4 @@
-"""FastAPI: WebSocket-Chat, Meeting-Start, statisches UI – hinter Login."""
+"""FastAPI: Projekte, WebSocket-Chat, Meeting-Start, statisches UI – hinter Login."""
 import asyncio
 import os
 
@@ -6,9 +6,10 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import auth, preflight
+from . import auth, preflight, store
 from .bus import bus
 from .config import PHASES, build_team, env
+from .github import GitHubError, github, slugify_repo_name, valid_full_name
 from .ingest import cleanup, clone_repo, pack_project
 from .mentions import answer_user_mention, extract_mentions
 from .pipeline import meeting
@@ -25,6 +26,11 @@ MISCONFIG_HINT = (
     "Setz ein Passwort in der .env – oder BOARDROOM_ALLOW_ANONYMOUS=1, "
     "wenn die App nachweislich nur lokal erreichbar ist."
 )
+EMPTY_REPO_PACK = (
+    "(Das Repository ist leer – es gibt noch keinen Code. Das Board startet "
+    "auf der grünen Wiese: Klärt zuerst, worum es geht, und entwerft dann "
+    "Strategie und Architektur von Grund auf.)"
+)
 
 
 def _cookie_secure(request: Request) -> bool:
@@ -37,13 +43,21 @@ def _cookie_secure(request: Request) -> bool:
     return request.url.scheme == "https" or forwarded.startswith("https")
 
 
-class StartRequest(BaseModel):
-    briefing: str
-    git_url: str | None = None
-
-
 class LoginRequest(BaseModel):
     password: str
+
+
+class ProjectRequest(BaseModel):
+    name: str
+    briefing: str = ""
+    repo_full_name: str = ""
+    create_repo: bool = False
+    private: bool = True
+
+
+class StartRequest(BaseModel):
+    project_id: str
+    briefing: str = ""
 
 
 # ---------------------------------------------------------------- Guard
@@ -109,6 +123,7 @@ async def team() -> JSONResponse:
                     "color": s.color} for s in specs.values()],
         "phases": PHASES,
         "running": meeting.running,
+        "github": github.enabled,
     })
 
 
@@ -119,44 +134,152 @@ async def preflight_check() -> JSONResponse:
     return JSONResponse(await preflight.check())
 
 
+# ---------------------------------------------------------------- GitHub
+@app.get("/api/github")
+async def github_status() -> JSONResponse:
+    """Login-Check plus die zuletzt bespielten Repos für die Auswahl."""
+    if not github.enabled:
+        return JSONResponse({"enabled": False,
+                             "error": "GITHUB_TOKEN ist nicht gesetzt."})
+    try:
+        user = await github.me()
+    except GitHubError as exc:
+        return JSONResponse({"enabled": True, "error": str(exc)})
+    # Manche Tokens dürfen sich anmelden, aber keine Repo-Liste ziehen
+    # (fein granulierte Tokens, Enterprise-Policies). Kein Grund zu blockieren –
+    # owner/repo lässt sich weiterhin von Hand eintippen.
+    repos, note = [], ""
+    try:
+        repos = await github.list_repos()
+    except GitHubError as exc:
+        note = f"Repo-Liste nicht verfügbar: {exc}"
+    return JSONResponse({"enabled": True, "login": user.get("login", ""),
+                         "repos": repos, "note": note, "error": ""})
+
+
+# ---------------------------------------------------------------- Projekte
+@app.get("/api/projects")
+async def projects() -> JSONResponse:
+    return JSONResponse({"projects": await store.list_projects()})
+
+
+@app.post("/api/projects")
+async def create_project(req: ProjectRequest) -> JSONResponse:
+    """Ein Projekt ohne Repo gibt es nicht: entweder ein vorhandenes
+    angeben oder eins anlegen lassen."""
+    name = req.name.strip()
+    if not name:
+        return JSONResponse({"error": "Projektname fehlt."}, status_code=422)
+    if not github.enabled:
+        return JSONResponse(
+            {"error": "GITHUB_TOKEN ist nicht gesetzt – ohne GitHub kein Projekt."},
+            status_code=422)
+
+    full_name = req.repo_full_name.strip()
+    try:
+        if req.create_repo:
+            if full_name and not valid_full_name(full_name):
+                return JSONResponse(
+                    {"error": f"'{full_name}' ist kein gültiges owner/repo."},
+                    status_code=422)
+            repo_name = full_name.split("/")[-1] if full_name else slugify_repo_name(name)
+            created = await github.create_repo(
+                repo_name, description=req.briefing[:200], private=req.private)
+            full_name = created.get("full_name", repo_name)
+        else:
+            if not valid_full_name(full_name):
+                return JSONResponse(
+                    {"error": "Gib ein Repo als owner/name an – oder lass eins anlegen."},
+                    status_code=422)
+            if await github.get_repo(full_name) is None:
+                return JSONResponse(
+                    {"error": f"Repo '{full_name}' existiert nicht oder der "
+                              "Token sieht es nicht."},
+                    status_code=404)
+    except GitHubError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=422)
+
+    project = await store.create_project(
+        name, req.briefing, full_name, github.web_url(full_name))
+    return JSONResponse({"project": project})
+
+
+@app.get("/api/projects/{project_id}/meetings")
+async def project_meetings(project_id: str) -> JSONResponse:
+    if not await store.get_project(project_id):
+        return JSONResponse({"error": "Projekt unbekannt."}, status_code=404)
+    return JSONResponse({"meetings": await store.list_meetings(project_id)})
+
+
+@app.get("/api/meetings/{meeting_id}/events")
+async def meeting_events(meeting_id: str) -> JSONResponse:
+    """Archivierter Verlauf – überlebt Neustarts, anders als der RAM-Chat."""
+    return JSONResponse({"events": await store.load_events(meeting_id)})
+
+
+# ---------------------------------------------------------------- Meeting
 @app.post("/api/start")
 async def start(req: StartRequest) -> JSONResponse:
     if meeting.running:
         return JSONResponse({"error": "Es läuft bereits ein Board-Meeting."},
                             status_code=409)
-    briefing = req.briefing.strip()
+    project = await store.get_project(req.project_id.strip())
+    if not project:
+        return JSONResponse({"error": "Projekt unbekannt."}, status_code=404)
+
+    briefing = (req.briefing.strip() or project["briefing"]).strip()
     if not briefing:
         return JSONResponse({"error": "Briefing fehlt."}, status_code=422)
 
-    git_url = (req.git_url or "").strip()
-    if git_url:
-        # Vor dem Start prüfen, damit der Fehler im Formular landet und
-        # nicht erst mitten im Meeting als Chatzeile.
-        try:
-            git_url = validate_repo_url(git_url)
-        except RepoUrlError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=422)
+    record = await store.create_meeting(project["id"], briefing)
+    await bus.open_meeting(record["id"], project)
+    await bus.system(f"Projekt: {project['name']} · Repo: "
+                     f"{project['repo_full_name'] or '—'}")
 
-    project_pack = "(Kein Repo übergeben – Analyse basiert nur auf dem Briefing.)"
-    repo_dir = None
-    if git_url:
-        await bus.system(f"Klone Repo: {redact(git_url)}")
-        try:
-            repo_dir = await asyncio.to_thread(clone_repo, git_url)
-            project_pack = await asyncio.to_thread(pack_project, repo_dir)
-            await bus.system("Repo eingelesen und für das Board verpackt.")
-        except Exception as exc:
-            await bus.system(f"Repo-Fehler: {exc} – Meeting läuft nur mit Briefing.")
+    project_pack, repo_dir = await _ingest(project)
 
     async def runner() -> None:
+        status = "done"
         try:
             await meeting.run(briefing, project_pack, repo_dir)
+        except Exception as exc:
+            status = "failed"
+            await bus.system(f"Meeting abgebrochen: {exc}")
         finally:
             if repo_dir:
                 cleanup(repo_dir)
+            await store.finish_meeting(record["id"], status)
+            bus.close_meeting()
 
     asyncio.create_task(runner())
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "meeting_id": record["id"]})
+
+
+async def _ingest(project: dict) -> tuple[str, str | None]:
+    """Repo holen und fürs Board verpacken. Leeres Repo ist kein Fehler,
+    sondern der Start auf der grünen Wiese."""
+    full_name = project["repo_full_name"]
+    if not full_name or not github.enabled:
+        return "(Kein Repo verfügbar – Analyse basiert nur auf dem Briefing.)", None
+    try:
+        if await github.is_empty(full_name):
+            await bus.system(f"Repo {full_name} ist leer – grüne Wiese.")
+            return EMPTY_REPO_PACK, None
+        url = validate_repo_url(github.clone_url(full_name))
+    except (GitHubError, RepoUrlError) as exc:
+        await bus.system(f"Repo-Fehler: {exc} – Meeting läuft nur mit Briefing.")
+        return f"(Repo nicht lesbar: {exc})", None
+
+    await bus.system(f"Klone {full_name} …")
+    try:
+        repo_dir = await asyncio.to_thread(clone_repo, url)
+        pack = await asyncio.to_thread(pack_project, repo_dir)
+        await bus.system("Repo eingelesen und für das Board verpackt.")
+        return pack, repo_dir
+    except Exception as exc:
+        await bus.system(f"Repo-Fehler: {redact(str(exc))} – "
+                         "Meeting läuft nur mit Briefing.")
+        return "(Repo konnte nicht geklont werden.)", None
 
 
 @app.websocket("/ws")

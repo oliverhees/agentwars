@@ -3,15 +3,22 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from app import auth, main
+from app import auth, github, main, store
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
     monkeypatch.setattr(auth, "PASSWORD", "geheim")
     monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", False)
     monkeypatch.setattr(auth, "_failures", {})
+    store.reset_for_tests(str(tmp_path / "http.db"))
     return TestClient(main.app)
+
+
+@pytest.fixture
+def angemeldet(client):
+    client.post("/api/login", json={"password": "geheim"})
+    return client
 
 
 def test_ohne_passwort_verweigert_die_app_den_dienst(monkeypatch):
@@ -22,13 +29,14 @@ def test_ohne_passwort_verweigert_die_app_den_dienst(monkeypatch):
     assert "BOARDROOM_PASSWORD" in resp.json()["error"]
 
 
-@pytest.mark.parametrize("path", ["/api/team", "/api/preflight"])
+@pytest.mark.parametrize("path", ["/api/team", "/api/preflight",
+                                  "/api/projects", "/api/github"])
 def test_api_ohne_session_ist_dicht(client, path):
     assert client.get(path).status_code == 401
 
 
 def test_start_ohne_session_ist_dicht(client):
-    resp = client.post("/api/start", json={"briefing": "egal"})
+    resp = client.post("/api/start", json={"project_id": "x", "briefing": "egal"})
     assert resp.status_code == 401
 
 
@@ -80,11 +88,83 @@ def test_websocket_mit_session_verbindet(client):
         pass
 
 
-def test_fremdes_repo_wird_vor_dem_start_abgelehnt(client, monkeypatch):
-    from app import security
-    monkeypatch.setattr(security, "REPO_ALLOWLIST", ["github.com"])
-    client.post("/api/login", json={"password": "geheim"})
-    resp = client.post("/api/start", json={"briefing": "Review bitte",
-                                           "git_url": "https://evil.com/x.git"})
+def test_projektliste_startet_leer(angemeldet):
+    assert angemeldet.get("/api/projects").json() == {"projects": []}
+
+
+def test_ohne_github_kein_projekt(angemeldet, monkeypatch):
+    monkeypatch.setattr(github.github, "enabled", False)
+    resp = angemeldet.post("/api/projects", json={"name": "Content Factory"})
     assert resp.status_code == 422
-    assert "REPO_ALLOWLIST" in resp.json()["error"]
+    assert "GITHUB_TOKEN" in resp.json()["error"]
+
+
+def test_projekt_ohne_repo_wird_abgelehnt(angemeldet, monkeypatch):
+    monkeypatch.setattr(github.github, "enabled", True)
+    resp = angemeldet.post("/api/projects", json={"name": "Ohne Repo"})
+    assert resp.status_code == 422
+    assert "owner/name" in resp.json()["error"]
+
+
+def test_projekt_mit_unbekanntem_repo_wird_abgelehnt(angemeldet, monkeypatch):
+    async def kein_repo(self, full_name):
+        return None
+    monkeypatch.setattr(github.github, "enabled", True)
+    monkeypatch.setattr(github.GitHubClient, "get_repo", kein_repo)
+    resp = angemeldet.post("/api/projects", json={
+        "name": "P", "repo_full_name": "oliverhees/gibtsnicht"})
+    assert resp.status_code == 404
+
+
+def test_projekt_mit_vorhandenem_repo_wird_angelegt(angemeldet, monkeypatch):
+    async def repo_da(self, full_name):
+        return {"full_name": full_name}
+    monkeypatch.setattr(github.github, "enabled", True)
+    monkeypatch.setattr(github.GitHubClient, "get_repo", repo_da)
+    resp = angemeldet.post("/api/projects", json={
+        "name": "Content Factory", "briefing": "Los geht's",
+        "repo_full_name": "oliverhees/content"})
+    assert resp.status_code == 200
+    projekt = resp.json()["project"]
+    assert projekt["repo_full_name"] == "oliverhees/content"
+    assert angemeldet.get("/api/projects").json()["projects"][0]["id"] == projekt["id"]
+
+
+def test_repo_wird_bei_bedarf_angelegt(angemeldet, monkeypatch):
+    gesehen = {}
+
+    async def anlegen(self, name, description="", private=True):
+        gesehen["name"] = name
+        gesehen["private"] = private
+        return {"full_name": f"oliverhees/{name}"}
+
+    monkeypatch.setattr(github.github, "enabled", True)
+    monkeypatch.setattr(github.GitHubClient, "create_repo", anlegen)
+    resp = angemeldet.post("/api/projects", json={
+        "name": "Content Factory", "create_repo": True})
+    assert resp.status_code == 200
+    assert gesehen == {"name": "content-factory", "private": True}
+    assert resp.json()["project"]["repo_full_name"] == "oliverhees/content-factory"
+
+
+def test_start_ohne_projekt_ist_404(angemeldet):
+    resp = angemeldet.post("/api/start", json={"project_id": "gibtsnicht"})
+    assert resp.status_code == 404
+
+
+def test_start_ohne_briefing_ist_422(angemeldet):
+    projekt = store._create_project("P", "", "o/r", "")
+    resp = angemeldet.post("/api/start", json={"project_id": projekt["id"]})
+    assert resp.status_code == 422
+
+
+def test_meetings_eines_unbekannten_projekts_sind_404(angemeldet):
+    assert angemeldet.get("/api/projects/gibtsnicht/meetings").status_code == 404
+
+
+def test_archivierter_verlauf_wird_geliefert(angemeldet):
+    projekt = store._create_project("P", "", "o/r", "")
+    meeting = store._create_meeting(projekt["id"], "b")
+    store._append_event(meeting["id"], {"type": "system", "text": "archiviert"})
+    events = angemeldet.get(f"/api/meetings/{meeting['id']}/events").json()["events"]
+    assert events[0]["text"] == "archiviert"

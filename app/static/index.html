@@ -141,13 +141,20 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
 .start-card label{display:block; font-family:"IBM Plex Mono",monospace;
   font-size:11px; letter-spacing:.08em; color:var(--muted);
   margin:12px 0 5px}
-.start-card input,.start-card textarea{width:100%;
+.start-card input,.start-card textarea,.start-card select{width:100%;
   background:var(--panel2); border:1px solid var(--line);
   border-radius:8px; color:var(--text); font:inherit; padding:9px 12px;
   outline:none}
 .start-card textarea{height:110px; resize:vertical}
-.start-card input:focus,.start-card textarea:focus{
-  border-color:var(--accent)}
+.start-card input:focus,.start-card textarea:focus,
+.start-card select:focus{border-color:var(--accent)}
+.chk{display:flex; align-items:center; gap:8px; margin-top:10px;
+  font-family:"IBM Plex Mono",monospace; font-size:11.5px;
+  color:var(--muted); cursor:pointer}
+.chk input{width:auto; accent-color:var(--accent)}
+.ghstat{font-family:"IBM Plex Mono",monospace; font-size:11.5px;
+  color:var(--muted); margin-top:8px; min-height:16px}
+.ghstat.bad{color:#E06060}
 .start-card button{margin-top:18px; width:100%; height:44px}
 .start-card button.ghost{background:none; border:1px solid var(--line);
   color:var(--muted); margin-top:10px; height:38px}
@@ -205,8 +212,23 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
   <div class="start-card">
     <h1>BOARD<b>ROOM</b></h1>
     <p>Sechs KI-Spezialisten. Ein Meeting. Dein Projekt auf dem Tisch.</p>
-    <label for="git">GIT-REPO-URL (optional)</label>
-    <input id="git" type="url" placeholder="https://github.com/du/dein-projekt.git">
+
+    <label for="project">PROJEKT</label>
+    <select id="project"></select>
+
+    <div id="newproject" hidden>
+      <label for="pname">PROJEKTNAME</label>
+      <input id="pname" placeholder="Content Factory">
+      <label for="repo">GITHUB-REPO</label>
+      <input id="repo" list="repolist" placeholder="owner/repo" autocomplete="off">
+      <datalist id="repolist"></datalist>
+      <label class="chk" for="mkrepo">
+        <input type="checkbox" id="mkrepo">
+        Repo existiert noch nicht – privat neu anlegen
+      </label>
+      <div class="ghstat" id="ghstat"></div>
+    </div>
+
     <label for="brief">BRIEFING</label>
     <textarea id="brief" placeholder="Was ist das Projekt, für wen, was soll es erreichen – und was soll das Board besonders prüfen?"></textarea>
     <button id="go">MEETING STARTEN</button>
@@ -217,7 +239,7 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
 </div>
 
 <script>
-const state = { agents:{}, phases:[], msgs:{} };
+const state = { agents:{}, phases:[], msgs:{}, projects:[] };
 const $ = id => document.getElementById(id);
 marked.setOptions({ breaks:true });
 
@@ -264,7 +286,52 @@ async function boot(){
 
   if (data.running) $("start").style.display = "none";
   connect();
+  loadProjects();
+  if (data.github) loadGithub();
+  else setGh("GITHUB_TOKEN ist nicht gesetzt – ohne GitHub kein Projekt.", true);
 }
+
+/* ---------------- Projekte + GitHub ---------------- */
+function setGh(text, bad){
+  $("ghstat").textContent = text;
+  $("ghstat").className = "ghstat" + (bad ? " bad" : "");
+}
+
+async function loadProjects(){
+  const res = await fetch("/api/projects");
+  if (!res.ok) return;
+  state.projects = (await res.json()).projects;
+  $("project").innerHTML =
+    state.projects.map(p => `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.repo_full_name || "—")}</option>`).join("")
+    + '<option value="">＋ Neues Projekt</option>';
+  // Ohne Projekte gibt es nur den Neu-Fall.
+  if (!state.projects.length) $("project").value = "";
+  syncProjectForm();
+}
+
+async function loadGithub(){
+  const res = await fetch("/api/github");
+  if (!res.ok) return;
+  const gh = await res.json();
+  if (gh.error){ setGh(gh.error, true); return; }
+  setGh(gh.note
+    ? `Angemeldet als ${gh.login} · ${gh.note}`
+    : `Angemeldet als ${gh.login} · ${gh.repos.length} Repos sichtbar`,
+    !!gh.note);
+  $("repolist").innerHTML = gh.repos
+    .map(r => `<option value="${esc(r.full_name)}"></option>`).join("");
+}
+
+function syncProjectForm(){
+  const id = $("project").value;
+  $("newproject").hidden = !!id;
+  const p = state.projects.find(x => x.id === id);
+  $("brief").value = p ? p.briefing : "";
+  $("brief").placeholder = p
+    ? "Optional: worauf soll das Board diesmal besonders schauen?"
+    : "Was ist das Projekt, für wen, was soll es erreichen – und was soll das Board besonders prüfen?";
+}
+$("project").onchange = syncProjectForm;
 
 /* ---------------- WebSocket ---------------- */
 let ws, sendQueue = [];
@@ -340,6 +407,13 @@ function handle(ev){
       <div class="body">${md(ev.text)}</div>`;
     $("chat").appendChild(div); scrollDown();
   }
+  else if (ev.type === "meeting"){
+    const div = document.createElement("div");
+    div.className = "sys plane";
+    div.textContent = `◆ Meeting eröffnet · ${ev.project}` +
+      (ev.repo ? ` · ${ev.repo}` : "");
+    $("chat").appendChild(div); scrollDown();
+  }
   else if (ev.type === "tool"){
     const a = state.agents[ev.agent];
     const div = document.createElement("div");
@@ -400,18 +474,36 @@ $("probe").onclick = async () => {
 };
 
 /* ---------------- Meeting starten ---------------- */
+async function post(url, body){
+  const res = await fetch(url, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(body)
+  });
+  if (res.status === 401){ location.reload(); throw new Error("Session abgelaufen"); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Anfrage fehlgeschlagen");
+  return data;
+}
+
 $("go").onclick = async () => {
   $("err").textContent = "";
   $("go").disabled = true;
   try{
-    const res = await fetch("/api/start", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ briefing: $("brief").value,
-                             git_url: $("git").value || null })
-    });
-    if (res.status === 401){ location.reload(); return; }
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Start fehlgeschlagen");
+    let projectId = $("project").value;
+    if (!projectId){
+      // Neues Projekt: erst das Repo klären, dann das Meeting.
+      const created = await post("/api/projects", {
+        name: $("pname").value,
+        briefing: $("brief").value,
+        repo_full_name: $("repo").value.trim(),
+        create_repo: $("mkrepo").checked
+      });
+      projectId = created.project.id;
+      await loadProjects();
+      $("project").value = projectId;
+    }
+    await post("/api/start", { project_id: projectId,
+                               briefing: $("brief").value });
     $("start").style.display = "none";
   }catch(err){
     $("err").textContent = err.message;

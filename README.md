@@ -13,9 +13,20 @@ Sechs KI-Spezialisten zerlegen dein Projekt live in einem Team-Chat, du sitzt mi
 | DeepSeek | Security & Reasoning | DeepSeek V4 Pro | HostYourAI |
 | GLM | Devil's Advocate | GLM 5.2 | HostYourAI |
 
+## Projekte – GitHub ist das Gate
+
+Ein Projekt ohne Repo gibt es nicht. Beim Anlegen gilt:
+
+- **Repo vorhanden** → `owner/repo` angeben, der Boardroom prüft es und klont es fürs Meeting
+- **Kein Repo** → Haken bei „Repo neu anlegen", der Boardroom legt es privat an. Das Board erkennt das leere Repo und startet mit „worum geht's?" statt mit einer Analyse
+
+Dafür braucht die `.env` einen `GITHUB_TOKEN` (Personal Access Token, Scope `repo`). Der Token landet nur in der Klon-URL und wird in Chat und Logs geschwärzt.
+
+Projekte, Meetings und der komplette Verlauf liegen in SQLite (`BOARDROOM_DB`, im Container auf dem Volume `/data`). Ein Neustart verliert nichts mehr – ältere Meetings lassen sich über `/api/projects/{id}/meetings` und `/api/meetings/{id}/events` nachlesen.
+
 ## Der Ablauf (ein "Board-Meeting")
 
-1. **Briefing** – du gibst Repo-URL + Briefing ein
+1. **Briefing** – du wählst ein Projekt (oder legst eins mit Repo an) und schreibst das Briefing
 2. **Einzelgutachten** – alle 6 analysieren parallel, live gestreamt
 3. **Kreuzverhör** – die 3 Senior Devs zerlegen die Gutachten der anderen
 4. **Chairman-Synthese** – Claude priorisiert alles zur Roadmap
@@ -83,6 +94,7 @@ Hinweise:
 ### .env ausfüllen – Checkliste
 
 - [ ] `BOARDROOM_PASSWORD` – **Pflicht**, sonst startet die App nicht
+- [ ] `GITHUB_TOKEN` – **Pflicht**, ohne GitHub kein Projekt
 - [ ] `REPO_ALLOWLIST` – **Pflicht für Repo-Analysen**, z. B. `github.com`
 - [ ] `CLAUDE_CODE_OAUTH_TOKEN` – per `claude setup-token` (empfohlen)
 - [ ] `ANTHROPIC_API_KEY` – nur als Fallback nötig
@@ -117,7 +129,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 pytest -q
 ```
 
-Abgedeckt sind die Stellen, an denen ein Fehler teuer wird: Repo-URL-Validierung, Session-Tokens und Login-Sperre, der Türsteher vor HTTP und WebSocket, der Mention-Parser und die Issue-Extraktion aus der Chairman-Antwort.
+Abgedeckt sind die Stellen, an denen ein Fehler teuer wird: Repo-URL-Validierung, Session-Tokens und Login-Sperre, der Türsteher vor HTTP und WebSocket, das GitHub-Gate beim Projektanlegen, die Persistenz über einen Neustart hinweg, der Mention-Parser und die Issue-Extraktion aus der Chairman-Antwort.
 
 ## TencentDB Agent Memory (optional, empfohlen ab v1.1)
 
@@ -130,20 +142,24 @@ Das Team-Gedächtnis: [TencentCloud/TencentDB-Agent-Memory](https://github.com/T
 ## Architektur (bewusst schmal)
 
 ```
-Browser (Login → Live-Chat, WebSocket)
+Browser (Login → Projekt wählen → Live-Chat, WebSocket)
    │
 Session-Guard (HTTP + WS)
    │
-FastAPI ── Event-Bus ── Pipeline (4 Phasen)
-   │           │            │
-   │           │         Claude Code (Subscription, Toolprofil "review")
-   │        Preflight       │
-   │                     LiteLLM ──► Anthropic / OpenAI / HostYourAI
-   │                        │              (optional via Memory-Proxy)
-   └── Plane REST API ◄─────┘
+FastAPI ── GitHub API (Repo prüfen / anlegen / klonen)
+   │
+   ├── SQLite (Projekte, Meetings, Verlauf)
+   │
+   └── Event-Bus ── Pipeline (4 Phasen)
+          │            │
+          │         Claude Code (Subscription, Toolprofil "review")
+       Preflight       │
+                    LiteLLM ──► Anthropic / OpenAI / HostYourAI
+                       │              (optional via Memory-Proxy)
+       Plane REST API ◄┘
 ```
 
-Kein Framework-Ballast, keine Datenbank, ein Container. Der Chat-Verlauf lebt im Speicher (Neustart = leerer Chat; die Ergebnisse sind ja in Plane gesichert).
+Kein Framework-Ballast, ein Container, eine SQLite-Datei. Der Live-Chat läuft über den Event-Bus, parallel wandert jedes Ereignis in die Datenbank – der Verlauf überlebt Neustarts.
 
 ## Kosten im Blick
 
