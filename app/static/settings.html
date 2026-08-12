@@ -192,6 +192,14 @@ function agentCard(a){
       </div>
     </div>
     <div class="field">
+      <label>FALLBACK-MODELL</label>
+      <select class="f-fallback-select"></select>
+      <input class="f-fallback" value="${esc(a.fallback_model || "")}" autocomplete="off"
+             placeholder="Modellname" style="margin-top:8px" hidden>
+      <div class="help">Springt ein, wenn das Hauptmodell nach allen
+        Versuchen nichts liefert. Leer = kein Fallback.</div>
+    </div>
+    <div class="field">
       <label>PROMPT DIESES AGENTEN</label>
       <textarea class="f-prompt">${esc(a.system_prompt)}</textarea>
       <div class="help">Kommt nach den Grundregeln. Beschreibt nur die Rolle.</div>
@@ -204,36 +212,48 @@ function agentCard(a){
   </div>`;
 }
 
-function modelOptions(card){
+function modelFeld(card, inputCls, selectCls, leerLabel){
   const provider = card.querySelector(".f-provider").value;
-  const feld = card.querySelector(".f-model");
-  const auswahl = card.querySelector(".f-model-select");
+  const feld = card.querySelector(inputCls);
+  const auswahl = card.querySelector(selectCls);
   const eintrag = state.byProvider[provider] || {models:[], error:""};
   const liste = eintrag.models || [];
   const wert = feld.value.trim();
 
-  auswahl.innerHTML = liste.map(m =>
+  const leer = leerLabel
+    ? `<option value=""${wert ? "" : " selected"}>${esc(leerLabel)}</option>` : "";
+  auswahl.innerHTML = leer + liste.map(m =>
       `<option value="${esc(m)}"${m === wert ? " selected" : ""}>${esc(m || "(Standard von Claude Code)")}</option>`).join("")
     + `<option value="${EIGEN}">＋ Eigenes Modell eintippen …</option>`;
 
   // Unbekanntes oder fehlende Liste: Freitext zeigen, damit nichts verloren geht
-  const kennt = liste.includes(wert);
+  const kennt = liste.includes(wert) || (!wert && leerLabel);
   auswahl.value = kennt ? wert : EIGEN;
   feld.hidden = kennt;
   if (!liste.length){
-    auswahl.innerHTML = `<option value="${EIGEN}">${esc(eintrag.error
+    auswahl.innerHTML = leer + `<option value="${EIGEN}">${esc(eintrag.error
       || "Kein Key hinterlegt – Modell von Hand eintragen")}</option>`;
-    feld.hidden = false;
+    auswahl.value = (!wert && leerLabel) ? "" : EIGEN;
+    feld.hidden = !wert && Boolean(leerLabel);
   }
 }
 
+function modelOptions(card){
+  modelFeld(card, ".f-model", ".f-model-select", "");
+  modelFeld(card, ".f-fallback", ".f-fallback-select", "— kein Fallback —");
+}
+
 function verdrahteModelle(card){
-  const feld = card.querySelector(".f-model");
-  const auswahl = card.querySelector(".f-model-select");
-  auswahl.onchange = () => {
-    if (auswahl.value === EIGEN){ feld.hidden = false; feld.focus(); }
-    else { feld.value = auswahl.value; feld.hidden = true; }
-  };
+  const paare = [[".f-model", ".f-model-select"],
+                 [".f-fallback", ".f-fallback-select"]];
+  for (const [inputCls, selectCls] of paare){
+    const feld = card.querySelector(inputCls);
+    const auswahl = card.querySelector(selectCls);
+    auswahl.onchange = () => {
+      if (auswahl.value === EIGEN){ feld.hidden = false; feld.focus(); }
+      else { feld.value = auswahl.value; feld.hidden = true; }
+    };
+  }
   card.querySelector(".f-provider").onchange = () => modelOptions(card);
   modelOptions(card);
 }
@@ -260,6 +280,7 @@ function collectAgents(){
     color: card.querySelector(".f-color").value,
     provider: card.querySelector(".f-provider").value,
     model: card.querySelector(".f-model").value.trim(),
+    fallback_model: card.querySelector(".f-fallback").value.trim(),
     system_prompt: card.querySelector(".f-prompt").value,
     enabled: card.querySelector(".f-enabled").checked,
     is_dev: card.querySelector(".f-dev").checked,

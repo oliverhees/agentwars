@@ -79,7 +79,10 @@ CREATE TABLE IF NOT EXISTS agents (
     system_prompt TEXT NOT NULL DEFAULT '',
     is_dev        INTEGER NOT NULL DEFAULT 0,
     is_chairman   INTEGER NOT NULL DEFAULT 0,
-    enabled       INTEGER NOT NULL DEFAULT 1
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    -- Springt ein, wenn das eigentliche Modell auch nach Wiederholungen
+    -- nicht antwortet. Leer = kein Ersatz, der Agent fällt dann aus.
+    fallback_model TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS usage (
     seq           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,6 +118,7 @@ MIGRATIONS = [
     ("meetings", "repo_lines", "INTEGER NOT NULL DEFAULT 0"),
     ("meetings", "repo_bytes", "INTEGER NOT NULL DEFAULT 0"),
     ("meetings", "tickets", "INTEGER NOT NULL DEFAULT 0"),
+    ("agents", "fallback_model", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 _conn: sqlite3.Connection | None = None

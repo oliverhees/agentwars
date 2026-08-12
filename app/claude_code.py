@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 
 from . import settings
 from .bus import bus
@@ -277,26 +278,37 @@ async def stream(prompt: str, *, msg_id: str, agent_id: str,
     Gibt (Text, Verbrauch) zurück. Der Verbrauch kommt aus dem result-Event
     von Claude Code selbst, ist also keine Schätzung.
 
-    profile="review" + cwd=Repo → Claude Code darf den Code lesen und
-    durchsuchen, aber nichts verändern und nichts ausführen.
+    **Das geprüfte Repo ist nie das Arbeitsverzeichnis.** Sonst lädt Claude
+    Code dessen CLAUDE.md, .claude/settings.json, Hooks und MCP-Server – der
+    Agent übernimmt dann die Identität des fremden Projekts statt seiner
+    Rolle im Board, und fremde Hooks laufen auf deinem Server. Stattdessen
+    arbeitet er in einem leeren Verzeichnis und bekommt das Repo per
+    --add-dir als reine Lesequelle dazu.
     """
     cmd = [CLAUDE_BIN, "-p",
            "--output-format", "stream-json",
-           "--verbose", "--include-partial-messages"]
+           "--verbose", "--include-partial-messages",
+           # Keine MCP-Server aus fremder Konfiguration starten.
+           "--strict-mcp-config"]
     model = settings.get("claude_code_model")
     if model:
         cmd += ["--model", model]
-    if profile and cwd:
-        tools = TOOL_PROFILES.get(profile)
+
+    arbeitsdir = None
+    aufraeumen = False
+    if cwd:
+        tools = TOOL_PROFILES.get(profile or "review")
         if not tools:
             raise ValueError(f"Unbekanntes Claude-Code-Toolprofil: {profile}")
         # Alles, was nicht hier steht, lehnt Claude Code im Headless-Modus
         # ab – es kann ja niemanden fragen.
-        cmd += ["--allowedTools", tools]
+        cmd += ["--allowedTools", tools, "--add-dir", cwd]
+        arbeitsdir = tempfile.mkdtemp(prefix="cc_neutral_")
+        aufraeumen = True
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
-        cwd=cwd or None,
+        cwd=arbeitsdir,
         env=_subprocess_env(),
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
@@ -374,6 +386,10 @@ async def stream(prompt: str, *, msg_id: str, agent_id: str,
     except asyncio.TimeoutError:
         proc.kill()
         raise RuntimeError(f"Claude Code Timeout nach {frist}s")
+    finally:
+        # Auch bei Timeout aufräumen, sonst füllt sich /tmp still.
+        if aufraeumen and arbeitsdir:
+            shutil.rmtree(arbeitsdir, ignore_errors=True)
 
     if proc.returncode not in (0, None) and not full and not result_text:
         detail = stderr_tail.decode(errors="replace")[-500:]

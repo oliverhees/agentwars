@@ -56,9 +56,77 @@ class Meeting:
         return claude_code.available()
 
     # ------------------------------------------------------------ LLM-Call
+    def _versuchsplan(self, spec) -> tuple[list[str], int, int]:
+        """Welche Modelle in welcher Reihenfolge, wie oft, mit welcher Pause.
+
+        Der claude-code-Provider trägt keinen LiteLLM-Präfix; für den Weg
+        über die API muss er zu anthropic/ umgeschrieben werden.
+        """
+        praefix = "anthropic/" if spec.provider == "claude-code" else ""
+        modelle = [praefix + spec.model]
+        if spec.fallback_model:
+            zweit = praefix + spec.fallback_model
+            if zweit not in modelle:
+                modelle.append(zweit)
+        versuche = max(1, settings.get_int("retry_attempts") or 1)
+        pause = max(0, settings.get_int("retry_backoff"))
+        return modelle, versuche, pause
+
+    async def _stream_once(self, spec, model: str, msg_id: str,
+                           user_content: str, max_tokens: int) -> tuple[str, object]:
+        """Ein einzelner Streaming-Versuch. Wirft weiter, wenn er scheitert."""
+        api_key = (settings.get("anthropic_api_key")
+                   if spec.provider == "claude-code" else spec.api_key)
+        kwargs: dict = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": spec.system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            "max_tokens": max_tokens,
+            "stream": True,
+            # Viele OpenAI-kompatible Endpunkte liefern die Abrechnung nur,
+            # wenn man ausdrücklich danach fragt. Wer es nicht kann, ignoriert
+            # den Parameter (litellm.drop_params).
+            "stream_options": {"include_usage": True},
+        }
+        if api_key:
+            kwargs["api_key"] = api_key
+        if spec.api_base:
+            kwargs["api_base"] = spec.api_base
+
+        full, gemeldet, buffer = "", None, ""
+        stream = await litellm.acompletion(**kwargs)
+        async for chunk in stream:
+            gezaehlt = getattr(chunk, "usage", None)
+            if gezaehlt:
+                gemeldet = gezaehlt
+            try:
+                delta = chunk.choices[0].delta.content or ""
+            except (AttributeError, IndexError):
+                delta = ""
+            if not delta:
+                continue
+            full += delta
+            buffer += delta
+            if len(buffer) >= 24:  # kleine Pakete bündeln, UI bleibt flüssig
+                await bus.emit({"type": "token", "id": msg_id,
+                                "agent": spec.id, "text": buffer})
+                buffer = ""
+        if buffer:
+            await bus.emit({"type": "token", "id": msg_id,
+                            "agent": spec.id, "text": buffer})
+        return full, gemeldet
+
     async def _stream_agent(self, agent_id: str, user_content: str,
                             max_tokens: int | None = None) -> str:
-        """Streamt eine Antwort Token für Token in den Team-Chat."""
+        """Streamt eine Antwort Token für Token in den Team-Chat.
+
+        Schweigt ein Modell oder fällt es aus, wird der Versuch wiederholt –
+        und danach auf das hinterlegte Fallback-Modell gewechselt. Eine leere
+        Antwort zählt dabei ausdrücklich als Ausfall: genau so ist Kimi im
+        ersten Meeting stumm durchgelaufen, ohne dass es jemand gemerkt hätte.
+        """
         if max_tokens is None:
             max_tokens = settings.get_int("max_tokens_review")
         spec = self.team[agent_id]
@@ -68,86 +136,104 @@ class Meeting:
 
         # ---- Claude läuft über Claude Code (deine Max-Subscription) ----
         if self._use_claude_code(agent_id):
-            try:
-                prompt = spec.system_prompt + "\n\n" + user_content
-                if self.repo_dir:
-                    prompt += ("\n\nDas Projekt-Repository liegt in deinem "
-                               "Arbeitsverzeichnis. Nutze deine Tools, um den "
-                               "Code selbst zu durchsuchen, bevor du urteilst. "
-                               "Du hast Lesezugriff – du änderst nichts.")
-                full, gemessen = await claude_code.stream(
-                    prompt, msg_id=msg_id, agent_id=agent_id,
-                    cwd=self.repo_dir,
-                    profile="review" if self.repo_dir else None,
-                )
-                await self._record_usage(spec, prompt, full, gemessen)
+            text = await self._claude_code_pfad(spec, msg_id, user_content)
+            if text is not None:
                 await bus.emit({"type": "msg_end", "id": msg_id,
-                                "agent": agent_id, "text": full})
+                                "agent": agent_id, "text": text})
                 await bus.agent_status(agent_id, "idle")
-                return full
-            except Exception as exc:
-                await bus.system(f"Claude Code nicht erreichbar ({exc}) – "
-                                 f"{spec.name} fällt auf die Anthropic-API zurück.")
+                return text
 
-        # Der claude-code-Provider trägt keinen LiteLLM-Präfix; für den
-        # Fallback muss er zur Anthropic-API umgeschrieben werden.
-        model = spec.model
-        api_key = spec.api_key
-        if spec.provider == "claude-code":
-            model = f"anthropic/{spec.model}"
-            api_key = settings.get("anthropic_api_key")
-
-        full, gemeldet = "", None
-        try:
-            kwargs: dict = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": spec.system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-                "max_tokens": max_tokens,
-                "stream": True,
-            }
-            if api_key:
-                kwargs["api_key"] = api_key
-            if spec.api_base:
-                kwargs["api_base"] = spec.api_base
-            # Viele OpenAI-kompatible Endpunkte liefern die Abrechnung nur,
-            # wenn man ausdrücklich danach fragt. Wer es nicht kann, ignoriert
-            # den Parameter (litellm.drop_params).
-            kwargs["stream_options"] = {"include_usage": True}
-            stream = await litellm.acompletion(**kwargs)
-            buffer = ""
-            async for chunk in stream:
-                gezaehlt = getattr(chunk, "usage", None)
-                if gezaehlt:
-                    gemeldet = gezaehlt
-                delta = ""
+        modelle, versuche, pause = self._versuchsplan(spec)
+        full, gemeldet, model = "", None, modelle[0]
+        letzter_fehler = ""
+        for nummer, model in enumerate(modelle):
+            for versuch in range(1, versuche + 1):
+                letzter = nummer == len(modelle) - 1 and versuch == versuche
                 try:
-                    delta = chunk.choices[0].delta.content or ""
-                except (AttributeError, IndexError):
-                    delta = ""
-                if not delta:
-                    continue
-                full += delta
-                buffer += delta
-                if len(buffer) >= 24:  # kleine Pakete bündeln, UI bleibt flüssig
-                    await bus.emit({"type": "token", "id": msg_id,
-                                    "agent": agent_id, "text": buffer})
-                    buffer = ""
-            if buffer:
-                await bus.emit({"type": "token", "id": msg_id,
-                                "agent": agent_id, "text": buffer})
-        except Exception as exc:  # Agent fällt aus, Meeting läuft weiter
-            full += f"\n\n[{spec.name} ist ausgefallen: {exc}]"
+                    full, gemeldet = await self._stream_once(
+                        spec, model, msg_id, user_content, max_tokens)
+                    if full.strip():
+                        letzter_fehler = ""
+                        break
+                    letzter_fehler = "leere Antwort"
+                except Exception as exc:   # Agent fällt aus, Meeting läuft weiter
+                    full, gemeldet = "", None
+                    letzter_fehler = str(exc)
+                if letzter:
+                    break
+                await self._neuer_versuch(spec, msg_id, model, letzter_fehler,
+                                          versuch, versuche, modelle, nummer)
+                if pause:
+                    await asyncio.sleep(pause)
+            if full.strip():
+                break
+
+        if not full.strip():
+            full = f"\n\n[{spec.name} ist ausgefallen: {letzter_fehler}]"
             await bus.emit({"type": "token", "id": msg_id, "agent": agent_id,
-                            "text": f"⚠️ Ausfall: {exc}"})
+                            "text": f"⚠️ Ausfall: {letzter_fehler}"})
+            await bus.system(
+                f"{spec.name} liefert nach {versuche} Versuchen"
+                + (f" und {len(modelle) - 1} Fallback-Modell(en)"
+                   if len(modelle) > 1 else "")
+                + f" nichts: {letzter_fehler}.")
         await self._record_usage(spec, spec.system_prompt + user_content,
                                  full, None, gemeldet, model)
         await bus.emit({"type": "msg_end", "id": msg_id,
                         "agent": agent_id, "text": full})
         await bus.agent_status(agent_id, "idle")
         return full
+
+    async def _neuer_versuch(self, spec, msg_id: str, model: str, fehler: str,
+                             versuch: int, versuche: int,
+                             modelle: list[str], nummer: int) -> None:
+        """Angefangene Ausgabe verwerfen und den Wechsel sichtbar machen."""
+        await bus.emit({"type": "msg_reset", "id": msg_id, "agent": spec.id})
+        naechstes = (modelle[nummer + 1] if versuch == versuche
+                     and nummer + 1 < len(modelle) else model)
+        if naechstes != model:
+            await bus.system(f"{spec.name}: {model} antwortet nicht ({fehler}) – "
+                             f"Wechsel auf Fallback {naechstes}.")
+        else:
+            await bus.system(f"{spec.name}: Versuch {versuch}/{versuche} "
+                             f"gescheitert ({fehler}) – neuer Anlauf.")
+
+    async def _claude_code_pfad(self, spec, msg_id: str,
+                                user_content: str) -> str | None:
+        """Antwort über die Subscription. None heisst: bitte über die API."""
+        prompt = spec.system_prompt + "\n\n" + user_content
+        if self.repo_dir:
+            prompt += ("\n\nDas Projekt-Repository liegt in deinem "
+                       "Arbeitsverzeichnis. Nutze deine Tools, um den "
+                       "Code selbst zu durchsuchen, bevor du urteilst. "
+                       "Du hast Lesezugriff – du änderst nichts.")
+        _, versuche, pause = self._versuchsplan(spec)
+        for versuch in range(1, versuche + 1):
+            try:
+                full, gemessen = await claude_code.stream(
+                    prompt, msg_id=msg_id, agent_id=spec.id,
+                    cwd=self.repo_dir,
+                    profile="review" if self.repo_dir else None,
+                )
+                if full.strip():
+                    await self._record_usage(spec, prompt, full, gemessen)
+                    return full
+                grund = "leere Antwort"
+            except Exception as exc:
+                grund = str(exc)
+            if versuch < versuche:
+                await bus.emit({"type": "msg_reset", "id": msg_id,
+                                "agent": spec.id})
+                await bus.system(f"{spec.name}: Claude Code Versuch "
+                                 f"{versuch}/{versuche} gescheitert ({grund}).")
+                if pause:
+                    await asyncio.sleep(pause)
+            else:
+                await bus.emit({"type": "msg_reset", "id": msg_id,
+                                "agent": spec.id})
+                await bus.system(f"Claude Code liefert nichts ({grund}) – "
+                                 f"{spec.name} fällt auf die Anthropic-API zurück.")
+        return None
 
     async def _record_usage(self, spec, prompt: str, answer: str,
                             claude_usage: dict | None = None,

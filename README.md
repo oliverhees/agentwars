@@ -192,6 +192,18 @@ Hinweise:
 - Fällt Claude Code aus, greift automatisch der API-Fallback (sofern Key gesetzt)
 - Toolrechte kommen als **Profil pro Aufruf**: Reviews laufen mit `CLAUDE_CODE_REVIEW_TOOLS` (`Read,Grep,Glob,LS,NotebookRead`) – lesen und suchen, nichts ändern, nichts ausführen. Was nicht in der Liste steht, lehnt Claude Code headless ab. Das Profil `build` (mit `Edit,Write,Bash`) ist für die spätere Umsetzungsphase vorbereitet und wird heute von keinem Codepfad angefordert.
 - Im Chat siehst du live, welche Datei Claude gerade liest (`⌁ Claude: Read app/main.py`)
+- Das geklonte Repo ist **Lesestoff, keine Heimat**: Claude Code startet in einem leeren Temp-Verzeichnis und bekommt das Repo per `--add-dir` dazu. Sonst lädt es dessen `CLAUDE.md`, `.claude/settings.json`, Hooks und MCP-Server – und übernimmt die Identität des fremden Projekts, statt es zu begutachten. Fremde Hooks sind zudem fremder Code auf deinem Host.
+
+### Wenn ein Modell schweigt
+
+Ein Agent, der nichts liefert, war früher einfach still – kein Fehler, kein
+Beitrag, niemand hat's gemerkt. Jetzt gilt: **eine leere Antwort ist ein
+Ausfall.**
+
+- `Versuche je Aufruf` (Standard 3) und `Wartezeit zwischen Versuchen` stehen unter `/settings` → *Limits*
+- Danach greift das **Fallback-Modell** des Agenten (`/settings` → Agentenkarte). Leer = kein Fallback
+- Jeder Fehlversuch verwirft sein angefangenes Fragment im Chat und meldet sich als Systemzeile – du siehst, *warum* gewechselt wurde
+- Liefert am Ende niemand etwas, steht das im Chat statt im Nichts
 
 ### .env ausfüllen – Checkliste
 

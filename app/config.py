@@ -362,6 +362,7 @@ class AgentSpec:
     color: str            # UI-Farbe
     model: str            # LiteLLM-Modellstring
     provider: str = "hostyourai"
+    fallback_model: str = ""  # springt ein, wenn das Hauptmodell schweigt
     api_key: str = ""
     api_base: str | None = None
     system_prompt: str = ""
@@ -393,6 +394,8 @@ def build_team() -> dict[str, AgentSpec]:
             id=record["id"], name=record["name"], tagline=record["tagline"],
             color=record["color"], provider=record["provider"],
             model=provider["prefix"] + record["model"],
+            fallback_model=(provider["prefix"] + record["fallback_model"]
+                            if record.get("fallback_model") else ""),
             api_key=settings.get(provider["key"]) if provider["key"] else "",
             api_base=api_base or None,
             system_prompt=prompt,

@@ -134,6 +134,13 @@ SETTINGS_SPEC = [
           "Limits", "number", "900"),
     _spec("max_mention_rounds", "MAX_MENTION_ROUNDS", "Diskussionsrunden",
           "Limits", "number", "2"),
+    _spec("retry_attempts", "RETRY_ATTEMPTS", "Versuche je Aufruf", "Limits",
+          "number", "3",
+          "Antwortet ein Modell nicht, wird mit wachsender Wartezeit erneut "
+          "gefragt. Erst danach greift das Ersatzmodell des Agenten."),
+    _spec("retry_backoff", "RETRY_BACKOFF", "Wartezeit zwischen Versuchen (s)",
+          "Limits", "number", "3",
+          "Verdoppelt sich mit jedem Fehlversuch."),
 ]
 
 BY_KEY = {entry["key"]: entry for entry in SETTINGS_SPEC}
@@ -229,7 +236,8 @@ def public_view() -> list[dict]:
 
 # ---------------------------------------------------------------- Agenten
 AGENT_FIELDS = ("name", "tagline", "color", "provider", "model",
-                "system_prompt", "is_dev", "is_chairman", "enabled")
+                "fallback_model", "system_prompt", "is_dev",
+                "is_chairman", "enabled")
 
 
 def _seed_agents() -> None:
@@ -239,10 +247,13 @@ def _seed_agents() -> None:
     for position, agent in enumerate(DEFAULT_AGENTS):
         conn.execute(
             "INSERT INTO agents (id, position, name, tagline, color, provider,"
-            " model, system_prompt, is_dev, is_chairman, enabled)"
+            " model, fallback_model, system_prompt, is_dev, is_chairman,"
+            " enabled)"
             " VALUES (:id, :position, :name, :tagline, :color, :provider,"
-            " :model, :system_prompt, :is_dev, :is_chairman, 1)",
-            {**agent, "position": position})
+            " :model, :fallback_model, :system_prompt, :is_dev, :is_chairman,"
+            " 1)",
+            {**agent, "position": position,
+             "fallback_model": agent.get("fallback_model", "")})
     conn.commit()
 
 
