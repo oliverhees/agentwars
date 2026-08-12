@@ -72,11 +72,13 @@ class CoolifyClient:
             for a in entries if isinstance(a, dict)
         ]
 
-    async def deploy(self, app_uuid: str = "", force: bool = False) -> dict:
-        """Stößt ein Deployment an und gibt die Deployment-Referenz zurück."""
-        uuid = app_uuid or settings.get("coolify_app_uuid")
+    async def deploy(self, app_uuid: str, force: bool = False) -> dict:
+        """Stößt ein Deployment an und gibt die Deployment-Referenz zurück.
+        Die Anwendung kommt vom Projekt – eine globale Standard-App gibt es
+        bewusst nicht, jedes Projekt deployt sich selbst."""
+        uuid = (app_uuid or "").strip()
         if not uuid:
-            raise CoolifyError("Keine Coolify-Anwendung hinterlegt.")
+            raise CoolifyError("Keine Coolify-Anwendung angegeben.")
         resp = await self._request(
             "GET", "/deploy", params={"uuid": uuid,
                                       "force": "true" if force else "false"})

@@ -14,7 +14,7 @@ from .github import GitHubError, github, slugify_repo_name, valid_full_name
 from .ingest import cleanup, clone_repo, pack_project
 from .mentions import answer_user_mention, extract_mentions
 from .pipeline import meeting
-from .plane import plane
+from .plane import PlaneError, plane
 from .security import RepoUrlError, redact, validate_repo_url
 
 app = FastAPI(title="KI-Agentur Boardroom")
@@ -55,6 +55,15 @@ class ProjectRequest(BaseModel):
     repo_full_name: str = ""
     create_repo: bool = False
     private: bool = True
+    plane_project_id: str = ""
+    create_plane_project: bool = False
+    coolify_app_uuid: str = ""
+
+
+class ProjectLinksRequest(BaseModel):
+    briefing: str | None = None
+    plane_project_id: str | None = None
+    coolify_app_uuid: str | None = None
 
 
 class StartRequest(BaseModel):
@@ -79,6 +88,7 @@ class AgentRequest(BaseModel):
 
 
 class DeployRequest(BaseModel):
+    project_id: str = ""
     app_uuid: str = ""
     force: bool = False
 
@@ -224,8 +234,20 @@ async def coolify_applications() -> JSONResponse:
 
 @app.post("/api/coolify/deploy")
 async def coolify_deploy(req: DeployRequest) -> JSONResponse:
+    """Deployt die Anwendung des angegebenen Projekts – es gibt bewusst
+    keine globale Standard-Anwendung mehr, jedes Projekt deployt sich selbst."""
+    app_uuid = req.app_uuid.strip()
+    if not app_uuid and req.project_id.strip():
+        project = await store.get_project(req.project_id.strip())
+        if not project:
+            return JSONResponse({"error": "Projekt unbekannt."}, status_code=404)
+        app_uuid = project["coolify_app_uuid"]
+    if not app_uuid:
+        return JSONResponse(
+            {"error": "Dem Projekt ist keine Coolify-Anwendung zugeordnet."},
+            status_code=422)
     try:
-        result = await coolify.deploy(req.app_uuid.strip(), req.force)
+        result = await coolify.deploy(app_uuid, req.force)
     except CoolifyError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422)
     await bus.system(f"Coolify-Deployment ausgelöst: {result}")
@@ -316,9 +338,51 @@ async def create_project(req: ProjectRequest) -> JSONResponse:
     except GitHubError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422)
 
+    # Plane-Projekt: vorhandenes wählen oder eins anlegen. Optional – ohne
+    # bleibt der Ticket-Sync für dieses Projekt einfach aus.
+    plane_project_id = req.plane_project_id.strip()
+    if req.create_plane_project:
+        try:
+            created_plane = await plane.create_project(name)
+            plane_project_id = created_plane.get("id", "")
+        except PlaneError as exc:
+            return JSONResponse({"error": f"Plane: {exc}"}, status_code=422)
+
     project = await store.create_project(
-        name, req.briefing, full_name, github.web_url(full_name))
+        name, req.briefing,
+        repo_full_name=full_name,
+        repo_url=github.web_url(full_name),
+        plane_project_id=plane_project_id,
+        coolify_app_uuid=req.coolify_app_uuid.strip(),
+    )
     return JSONResponse({"project": project})
+
+
+@app.put("/api/projects/{project_id}")
+async def update_project(project_id: str, req: ProjectLinksRequest) -> JSONResponse:
+    """Plane-Projekt und Coolify-App kommen oft erst später dazu."""
+    if not await store.get_project(project_id):
+        return JSONResponse({"error": "Projekt unbekannt."}, status_code=404)
+    fields = {k: v for k, v in req.model_dump().items() if v is not None}
+    if not await store.update_project(project_id, fields):
+        return JSONResponse({"error": "Nichts zu ändern."}, status_code=422)
+    return JSONResponse({"project": await store.get_project(project_id)})
+
+
+# ---------------------------------------------------------------- Plane
+@app.get("/api/plane/projects")
+async def plane_projects() -> JSONResponse:
+    """Für das Dropdown beim Anlegen eines Boardroom-Projekts."""
+    if not plane.configured:
+        return JSONResponse({"configured": False, "projects": [],
+                             "error": "Plane ist nicht konfiguriert "
+                                      "(/settings, Abschnitt Plane)."})
+    try:
+        return JSONResponse({"configured": True,
+                             "projects": await plane.projects(), "error": ""})
+    except PlaneError as exc:
+        return JSONResponse({"configured": True, "projects": [],
+                             "error": str(exc)})
 
 
 @app.get("/api/projects/{project_id}/meetings")
@@ -358,7 +422,7 @@ async def start(req: StartRequest) -> JSONResponse:
     async def runner() -> None:
         status = "done"
         try:
-            await meeting.run(briefing, project_pack, repo_dir)
+            await meeting.run(briefing, project_pack, repo_dir, project)
         except Exception as exc:
             status = "failed"
             await bus.system(f"Meeting abgebrochen: {exc}")

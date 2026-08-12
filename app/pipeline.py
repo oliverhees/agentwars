@@ -15,10 +15,9 @@ import uuid
 
 import litellm
 
-from . import claude_code, mentions, preflight, settings
+from . import claude_code, mentions, preflight, settings, tickets
 from .bus import bus
-from .config import build_team
-from .plane import plane
+from .config import CHAIRMAN_JSON_CONTRACT, build_team
 
 litellm.drop_params = True  # unbekannte Params still verwerfen (Router-Kompatibilität)
 
@@ -30,6 +29,7 @@ class Meeting:
         self.running = False
         self._team: dict = {}
         self.repo_dir: str | None = None
+        self.project: dict = {}
 
     @property
     def team(self) -> dict:
@@ -167,9 +167,11 @@ class Meeting:
 
     # ------------------------------------------------------------ Ablauf
     async def run(self, briefing: str, project_pack: str,
-                  repo_dir: str | None = None) -> None:
+                  repo_dir: str | None = None,
+                  project: dict | None = None) -> None:
         self.running = True
         self.repo_dir = repo_dir
+        self.project = project or {}
         # Aufstellung, Prompts und Modelle können sich seit dem letzten
         # Meeting geändert haben – frisch laden statt zwischenspeichern.
         self.reload_team()
@@ -183,19 +185,26 @@ class Meeting:
             if preflight.CHECK_ON_START:
                 await self._report_preflight()
             await bus.phase("briefing", "done")
+            # Grüne Wiese oder bestehender Code? Davon hängt ab, ob das Board
+            # prüft oder entwirft – die Rollen bleiben, der Auftrag dreht sich.
+            greenfield = repo_dir is None
+            lage = settings.get(
+                "mode_greenfield" if greenfield else "mode_existing")
+            await bus.system("Lage: grüne Wiese – das Board entwirft."
+                             if greenfield else
+                             "Lage: bestehendes Projekt – das Board prüft.")
             base_context = (
+                f"{lage}\n\n"
                 f"## Projekt-Briefing vom Gründer\n{briefing}\n\n"
                 f"## Projekt-Snapshot\n{project_pack}"
             )
 
             # ---------------- Phase 1: Einzelgutachten (alle parallel)
             await bus.phase("gutachten", "active")
-            await bus.system(f"Phase 1 – Einzelgutachten: Alle {len(self.team)} nehmen sich das Projekt vor.")
+            await bus.system(f"Phase 1 – Einzelbeiträge: Alle {len(self.team)} "
+                             "nehmen sich das Projekt vor.")
             notes = await self._founder_notes()
-            prompt1 = base_context + notes + (
-                "\n\nErstelle jetzt dein unabhängiges Gutachten zu diesem Projekt "
-                "aus Sicht deiner Rolle."
-            )
+            prompt1 = base_context + notes + "\n\n" + settings.get("phase_review")
             results = await asyncio.gather(
                 *[self._stream_agent(aid, prompt1) for aid in self.team]
             )
@@ -216,10 +225,8 @@ class Meeting:
                 )
                 prompt = (
                     base_context + notes +
-                    f"\n\nHier sind die Gutachten deiner Kollegen:\n\n{others}\n\n"
-                    "Dein Auftrag: 1) Wo liegen die Kollegen falsch oder übertreiben? "
-                    "2) Welche ihrer Punkte sind Gold wert? 3) Was hat das gesamte "
-                    "Board übersehen? Sei direkt und begründe hart am Projekt."
+                    f"\n\n## Beiträge deiner Kollegen\n\n{others}\n\n"
+                    + settings.get("phase_cross")
                 )
                 return await self._stream_agent(aid, prompt)
 
@@ -240,14 +247,8 @@ class Meeting:
             chairman_prompt = (
                 base_context + notes +
                 f"\n\n## Alle Board-Ergebnisse\n{alle}\n\n"
-                "Du bist der Chairman. Erstelle:\n"
-                "1) Eine priorisierte Roadmap als Markdown: Was killt das Projekt "
-                "gerade, was macht es zur Bombe, in welcher Reihenfolge fixen.\n"
-                "2) GANZ AM ENDE einen Block ```json mit einem Array von Issues "
-                "für das Projektmanagement, Format:\n"
-                '[{"name": "Kurztitel", "description": "Was & warum & wie", '
-                '"priority": "urgent|high|medium|low"}]\n'
-                "Maximal 12 Issues, nach Wichtigkeit sortiert."
+                + settings.get("phase_chairman")
+                + CHAIRMAN_JSON_CONTRACT   # nicht editierbar, sonst keine Tickets
             )
             roadmap = await self._stream_agent(
                 chairman, chairman_prompt,
@@ -255,31 +256,24 @@ class Meeting:
             )
             await bus.phase("synthese", "done")
 
-            # ---------------- Phase 4: Plane-Sync
+            # ---------------- Phase 4: Tickets
             await bus.phase("plane", "active")
             issues = self._extract_issues(roadmap)
-            if not plane.enabled:
-                await bus.system("Plane ist nicht konfiguriert (.env) – "
-                                 f"{len(issues)} Issues wurden NICHT synchronisiert.")
-            elif not issues:
+            blocker = tickets.readiness(self.project)
+            if not issues:
                 await bus.system("Chairman hat keinen JSON-Issue-Block geliefert – "
                                  "nichts zu synchronisieren.")
+            elif blocker:
+                await bus.system(f"{len(issues)} Tickets NICHT angelegt: {blocker}.")
             else:
-                ok = 0
-                for issue in issues:
-                    try:
-                        created = await plane.create_issue(
-                            issue.get("name", "Unbenannt"),
-                            issue.get("description", ""),
-                            issue.get("priority", "medium"),
-                        )
-                        ok += 1
-                        await bus.emit({"type": "plane", "text":
-                                        f"Issue angelegt: {issue.get('name')}",
-                                        "issue_id": created.get("id", "")})
-                    except Exception as exc:
-                        await bus.system(f"Plane-Fehler bei '{issue.get('name')}': {exc}")
-                await bus.system(f"Plane-Sync fertig: {ok}/{len(issues)} Issues angelegt.")
+                done, failed = await tickets.sync(issues, self.project)
+                for line in done:
+                    await bus.emit({"type": "plane", "text": line})
+                for line in failed:
+                    await bus.system(f"Ticket-Fehler – {line}")
+                await bus.system(
+                    f"Ticket-Sync fertig: {len(done)} angelegt"
+                    + (f", {len(failed)} fehlgeschlagen." if failed else "."))
             await bus.phase("plane", "done")
             await bus.system("Board-Meeting beendet. Du kannst ein neues starten.")
         finally:

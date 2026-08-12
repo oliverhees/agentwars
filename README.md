@@ -1,6 +1,6 @@
 # Boardroom – deine KI-Agentur
 
-Sechs KI-Spezialisten zerlegen dein Projekt live in einem Team-Chat, du sitzt mit am Tisch, und die Ergebnisse landen automatisch als Issues in Plane.
+Sechs KI-Spezialisten nehmen sich dein Projekt live in einem Team-Chat vor, du sitzt mit am Tisch, und die Ergebnisse landen automatisch als Tickets in Plane oder GitHub.
 
 ## Das Team
 
@@ -8,21 +8,26 @@ Die Startaufstellung – **alles davon ist unter `/settings` änderbar**: Modell
 
 | Agent | Rolle | Modell | Quelle |
 |---|---|---|---|
-| Claude | Senior Dev + Chairman | claude-sonnet-4-6 | Claude Code (Subscription) |
-| GPT | Senior Dev | gpt-5.2 | OpenAI API |
-| Kimi | Senior Dev | Kimi K3 | HostYourAI |
-| Qwen | Architektur & Tooling | Qwen3.5 | HostYourAI |
-| DeepSeek | Security & Reasoning | DeepSeek V4 Pro | HostYourAI |
-| GLM | Devil's Advocate | GLM 5.2 | HostYourAI |
+| Claude | Lead Engineer · Chairman | claude-sonnet-4-6 | Claude Code (Subscription) |
+| GPT | Robustheit & Testbarkeit | gpt-5.2 | OpenAI API |
+| Kimi | Skalierung & Datenmodell | Kimi K3 | HostYourAI |
+| Qwen | Architektur & Betrieb | Qwen3.5 | HostYourAI |
+| DeepSeek | Sicherheit & Datenschutz | DeepSeek V4 Pro | HostYourAI |
+| GLM | Devil's Advocate · Markt | GLM 5.2 | HostYourAI |
+
+Jede Rolle ist für **beide Lagen** ausformuliert: bei bestehendem Code prüft sie, auf der grünen Wiese entwirft sie. Wer die Prompts aus einer älteren Version übernimmt, holt sich die neuen mit „AUF STANDARD ZURÜCKSETZEN" auf der Einstellungsseite.
 
 ## Einstellungsseite
 
 Unter **`/settings`** wird das System konfiguriert, ohne die `.env` anzufassen:
 
 - **Pro Agent:** Provider (Claude Code, Anthropic, OpenAI, HostYourAI), Modell, eigener Prompt, Name, Farbe, aktiv/inaktiv, Teilnahme am Kreuzverhör, wer Chairman ist
-- **Grundregeln:** der Text, der *vor* jedem Agenten-Prompt steht – dort setzt du den Ton fürs ganze Board. Die @Mention-Regeln stehen daneben, die Handles setzt das System selbst ein
+- **Grundregeln:** der Text, der *vor* jedem Agenten-Prompt steht – dort setzt du den Ton fürs ganze Board
+- **Lage:** zwei getrennte Texte für „bestehendes Projekt" (prüfen) und „grüne Wiese" (entwerfen). Der passende wird automatisch vor die Phasenanweisung gesetzt
+- **Phasenanweisungen** für Einzelbeiträge, Kreuzverhör und Synthese. Das JSON-Format für die Tickets hängt das System selbst an – das kannst du nicht kaputt machen
+- **@Mention-Regeln**, die Handles setzt das System selbst ein
 - **Zugänge:** alle API-Keys, Base-URLs und der Memory-Proxy
-- **Plane & Coolify:** URL, Token, Workspace, Projekt – mit Verbindungstest
+- **Plane & Coolify:** URL und Token – mit Verbindungstest. Das konkrete Plane-Projekt und die Coolify-Anwendung hängen am Boardroom-Projekt, nicht global
 - **Limits:** Kontextbudget, Tokenbudgets, Diskussionsrunden
 - **„Modelle vom Router laden"** holt den echten Modellkatalog von HostYourAI in die Auswahlfelder – Schluss mit geratenen Slugs
 
@@ -30,22 +35,38 @@ Die Reihenfolge der Wahrheit ist **Datenbank → `.env` → Default**. Bestehend
 
 ## Projekte – GitHub ist das Gate
 
-Ein Projekt ohne Repo gibt es nicht. Beim Anlegen gilt:
+Ein Projekt ohne Repo gibt es nicht. Beim Anlegen wählst du aus drei Dropdowns:
 
-- **Repo vorhanden** → `owner/repo` angeben, der Boardroom prüft es und klont es fürs Meeting
-- **Kein Repo** → Haken bei „Repo neu anlegen", der Boardroom legt es privat an. Das Board erkennt das leere Repo und startet mit „worum geht's?" statt mit einer Analyse
+| Verknüpfung | Auswahl | Pflicht |
+|---|---|---|
+| **GitHub-Repo** | vorhandenes wählen oder neues privat anlegen | ja |
+| **Plane-Projekt** | vorhandenes wählen oder neues anlegen | nein |
+| **Coolify-Anwendung** | vorhandene wählen | nein |
 
-Dafür braucht die `.env` einen `GITHUB_TOKEN` (Personal Access Token, Scope `repo`). Der Token landet nur in der Klon-URL und wird in Chat und Logs geschwärzt.
+Das Repo ist der Anker und wird nachträglich nicht getauscht. Plane-Projekt und Coolify-Anwendung lassen sich später jederzeit ändern – die Auswahl wirkt sofort.
+
+**Leeres Repo ist kein Fehler, sondern ein anderer Auftrag:** Enthält das Repo Code, *prüft* das Board. Ist es leer, *entwirft* es – dieselben Rollen, anderer Auftrag (siehe „Lage" unter `/settings`).
 
 Projekte, Meetings und der komplette Verlauf liegen in SQLite (`BOARDROOM_DB`, im Container auf dem Volume `/data`). Ein Neustart verliert nichts mehr – ältere Meetings lassen sich über `/api/projects/{id}/meetings` und `/api/meetings/{id}/events` nachlesen.
+
+## Tickets: Plane oder GitHub Issues
+
+`ticket_target` unter `/settings` bestimmt, wohin die Roadmap des Chairmans wandert:
+
+- **`plane`** (Standard) – die Planungsdaten bleiben auf deiner Instanz, also DSGVO-konform. Jedes Boardroom-Projekt schreibt in sein eigenes Plane-Projekt.
+- **`github`** – enger am Code: ein `Fixes #12` im PR schließt das Ticket von selbst. Dafür liegen die Planungsdaten bei GitHub. Prioritäten werden zu `prio:*`-Labels.
+- **`both`** – Plane führt, GitHub ist die Arbeitsansicht.
+- **`off`** – nichts anlegen.
+
+> Ein Hinweis, falls du auf GitHub umstellst: GitHub bremst schreibende Zugriffe (Secondary Rate Limits). Issues eignen sich für **Entscheidungen**, nicht für ein Schritt-für-Schritt-Protokoll – das gehört als Markdown ins Repo.
 
 ## Der Ablauf (ein "Board-Meeting")
 
 1. **Briefing** – du wählst ein Projekt (oder legst eins mit Repo an) und schreibst das Briefing
-2. **Einzelgutachten** – alle 6 analysieren parallel, live gestreamt
-3. **Kreuzverhör** – die 3 Senior Devs zerlegen die Gutachten der anderen
-4. **Chairman-Synthese** – Claude priorisiert alles zur Roadmap
-5. **Plane-Sync** – die Roadmap wird zu Issues in deinem Plane-Projekt
+2. **Einzelbeiträge** – alle sechs arbeiten parallel, live gestreamt
+3. **Kreuzverhör** – die Devs zerlegen die Beiträge der anderen
+4. **Chairman-Synthese** – der Chairman entscheidet und baut die Roadmap
+5. **Tickets** – die Roadmap wird zu Issues in Plane und/oder GitHub
 
 **Du kannst jederzeit reinschreiben.** Deine Nachrichten werden an der nächsten Phasengrenze als "Anweisungen vom Gründer" in den Kontext aller Agenten injiziert.
 
@@ -164,7 +185,7 @@ Abgedeckt sind die Stellen, an denen ein Fehler teuer wird: Repo-URL-Validierung
 
 ## Coolify als Realitätscheck (optional)
 
-Base-URL und API-Token unter `/settings` hinterlegen (Coolify → Keys & Tokens → API tokens). Damit kann der Boardroom Anwendungen auflisten (`GET /api/coolify/applications`) und ein Deployment auslösen (`POST /api/coolify/deploy`).
+Base-URL und API-Token unter `/settings` hinterlegen (Coolify → Keys & Tokens → API tokens). Die **Anwendung wird pro Projekt** gewählt – eine globale Standard-Anwendung gibt es bewusst nicht, jedes Projekt deployt sich selbst. `POST /api/coolify/deploy` mit `project_id` stößt das Deployment der zugeordneten Anwendung an.
 
 Bewusst die REST-API und nicht MCP: der Boardroom ist selbst ein Server, der HTTP spricht. Ein MCP-Server dazwischen wäre ein zusätzlicher Prozess, eine zusätzliche Auth-Schicht und ein zusätzlicher Ausfallpunkt für drei Endpunkte, die wir direkt aufrufen können.
 

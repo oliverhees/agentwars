@@ -17,7 +17,9 @@ import threading
 
 from . import store
 from .config import (DEFAULT_AGENTS, DEFAULT_BASE_PROMPT,
-                     DEFAULT_MENTION_RULES, env)
+                     DEFAULT_MENTION_RULES, DEFAULT_MODE_EXISTING,
+                     DEFAULT_MODE_GREENFIELD, DEFAULT_PHASE_CHAIRMAN,
+                     DEFAULT_PHASE_CROSS, DEFAULT_PHASE_REVIEW, env)
 
 SECRET = "secret"
 
@@ -58,6 +60,12 @@ SETTINGS_SPEC = [
     _spec("github_host", "GITHUB_HOST", "GitHub Host", "GitHub", "text",
           "github.com"),
 
+    # ---- Tickets
+    _spec("ticket_target", "TICKET_TARGET", "Tickets anlegen in", "Tickets",
+          "text", "plane",
+          "plane · github · both · off. Plane ist Standard, weil die "
+          "Planungsdaten dann auf deiner Instanz bleiben."),
+
     # ---- Plane
     _spec("plane_base_url", "PLANE_BASE_URL", "Plane Base-URL", "Plane",
           "text", "", "z. B. https://plane.deine-domain.de"),
@@ -65,22 +73,35 @@ SETTINGS_SPEC = [
           "", "Plane → Profil-Einstellungen → API Tokens"),
     _spec("plane_workspace", "PLANE_WORKSPACE", "Workspace-Slug", "Plane",
           "text", "", "Der Teil aus der URL: plane.dev/DEIN-SLUG/…"),
-    _spec("plane_project_id", "PLANE_PROJECT_ID", "Projekt-UUID", "Plane",
-          "text", "", "Projekt → Settings → UUID aus der URL"),
+    _spec("plane_project_id", "PLANE_PROJECT_ID", "Rückfall-Projekt (UUID)",
+          "Plane", "text", "",
+          "Wird nur benutzt, wenn ein Boardroom-Projekt kein eigenes "
+          "Plane-Projekt hat. Normalerweise leer lassen."),
 
     # ---- Coolify
     _spec("coolify_base_url", "COOLIFY_BASE_URL", "Coolify Base-URL",
           "Coolify", "text", "", "z. B. https://coolify.deine-domain.de"),
     _spec("coolify_token", "COOLIFY_TOKEN", "Coolify API-Token", "Coolify",
           SECRET, "", "Coolify → Keys & Tokens → API tokens"),
-    _spec("coolify_app_uuid", "COOLIFY_APP_UUID", "Standard-Anwendung",
-          "Coolify", "text", "",
-          "UUID der Anwendung, die nach der Umsetzung deployt wird."),
 
     # ---- Prompts
     _spec("base_prompt", "", "Grundregeln für alle Agenten", "Prompts",
           "textarea", DEFAULT_BASE_PROMPT,
           "Steht vor jedem Agenten-Prompt. Hier wird der Ton gesetzt."),
+    _spec("mode_existing", "", "Lage: bestehendes Projekt", "Prompts",
+          "textarea", DEFAULT_MODE_EXISTING,
+          "Wird eingesetzt, wenn das Repo Code enthält – dann wird geprüft."),
+    _spec("mode_greenfield", "", "Lage: grüne Wiese", "Prompts",
+          "textarea", DEFAULT_MODE_GREENFIELD,
+          "Wird eingesetzt, wenn das Repo leer ist – dann wird entworfen."),
+    _spec("phase_review", "", "Phase 1: Einzelbeiträge", "Prompts",
+          "textarea", DEFAULT_PHASE_REVIEW),
+    _spec("phase_cross", "", "Phase 2: Kreuzverhör", "Prompts",
+          "textarea", DEFAULT_PHASE_CROSS),
+    _spec("phase_chairman", "", "Phase 3: Chairman-Synthese", "Prompts",
+          "textarea", DEFAULT_PHASE_CHAIRMAN,
+          "Das JSON-Format für die Tickets hängt das System selbst an – "
+          "das kannst du hier nicht kaputt machen."),
     _spec("mention_rules", "", "Regeln für @Erwähnungen", "Prompts",
           "textarea", DEFAULT_MENTION_RULES,
           "Wird automatisch angehängt. Die Handles setzt das System ein."),

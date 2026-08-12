@@ -152,7 +152,7 @@ def test_start_ohne_projekt_ist_404(angemeldet):
 
 
 def test_start_ohne_briefing_ist_422(angemeldet):
-    projekt = store._create_project("P", "", "o/r", "")
+    projekt = store._create_project("P", "", repo_full_name="o/r")
     resp = angemeldet.post("/api/start", json={"project_id": projekt["id"]})
     assert resp.status_code == 422
 
@@ -162,8 +162,38 @@ def test_meetings_eines_unbekannten_projekts_sind_404(angemeldet):
 
 
 def test_archivierter_verlauf_wird_geliefert(angemeldet):
-    projekt = store._create_project("P", "", "o/r", "")
+    projekt = store._create_project("P", "", repo_full_name="o/r")
     meeting = store._create_meeting(projekt["id"], "b")
     store._append_event(meeting["id"], {"type": "system", "text": "archiviert"})
     events = angemeldet.get(f"/api/meetings/{meeting['id']}/events").json()["events"]
     assert events[0]["text"] == "archiviert"
+
+
+def test_plane_projekte_ohne_konfiguration(angemeldet):
+    daten = angemeldet.get("/api/plane/projects").json()
+    assert daten["configured"] is False
+    assert daten["projects"] == []
+
+
+def test_verknuepfungen_lassen_sich_nachtragen(angemeldet):
+    projekt = store._create_project("P", "", repo_full_name="o/r")
+    resp = angemeldet.put(f"/api/projects/{projekt['id']}",
+                          json={"plane_project_id": "plane-uuid",
+                                "coolify_app_uuid": "app-uuid"})
+    assert resp.status_code == 200
+    aktualisiert = resp.json()["project"]
+    assert aktualisiert["plane_project_id"] == "plane-uuid"
+    assert aktualisiert["coolify_app_uuid"] == "app-uuid"
+
+
+def test_verknuepfung_eines_unbekannten_projekts_ist_404(angemeldet):
+    assert angemeldet.put("/api/projects/gibtsnicht",
+                          json={"plane_project_id": "x"}).status_code == 404
+
+
+def test_deploy_ohne_zugeordnete_anwendung_ist_422(angemeldet):
+    projekt = store._create_project("P", "", repo_full_name="o/r")
+    resp = angemeldet.post("/api/coolify/deploy",
+                           json={"project_id": projekt["id"]})
+    assert resp.status_code == 422
+    assert "Coolify-Anwendung" in resp.json()["error"]

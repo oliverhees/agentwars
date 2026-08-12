@@ -136,6 +136,27 @@ class GitHubClient:
             raise self._fail(resp, "Repo anlegen")
         return resp.json()
 
+    async def create_issue(self, full_name: str, title: str, body: str,
+                           labels: list[str] | None = None) -> dict:
+        if not valid_full_name(full_name):
+            raise GitHubError(f"'{full_name}' ist kein gültiges owner/repo.")
+        payload: dict = {"title": title[:250], "body": body[:60000]}
+        if labels:
+            payload["labels"] = labels
+        resp = await self._request("POST", f"/repos/{full_name}/issues",
+                                   json=payload)
+        if resp.status_code != 201:
+            raise self._fail(resp, "Issue anlegen")
+        return resp.json()
+
+    async def comment_issue(self, full_name: str, number: int,
+                            body: str) -> None:
+        resp = await self._request(
+            "POST", f"/repos/{full_name}/issues/{number}/comments",
+            json={"body": body[:60000]})
+        if resp.status_code != 201:
+            raise self._fail(resp, "Kommentar anlegen")
+
     # ------------------------------------------------------------ Klonen
     def clone_url(self, full_name: str) -> str:
         """URL mit Token, damit auch private Repos geklont werden können.

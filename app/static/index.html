@@ -162,6 +162,7 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
 .ghstat{font-family:"IBM Plex Mono",monospace; font-size:11.5px;
   color:var(--muted); margin-top:8px; min-height:16px}
 .ghstat.bad{color:#E06060}
+.req{color:var(--accent); letter-spacing:0}
 .start-card button{margin-top:18px; width:100%; height:44px}
 .start-card button.ghost{background:none; border:1px solid var(--line);
   color:var(--muted); margin-top:10px; height:38px}
@@ -229,18 +230,22 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
     <label for="project">PROJEKT</label>
     <select id="project"></select>
 
-    <div id="newproject" hidden>
+    <div id="pname-wrap" hidden>
       <label for="pname">PROJEKTNAME</label>
       <input id="pname" placeholder="Content Factory">
-      <label for="repo">GITHUB-REPO</label>
-      <input id="repo" list="repolist" placeholder="owner/repo" autocomplete="off">
-      <datalist id="repolist"></datalist>
-      <label class="chk" for="mkrepo">
-        <input type="checkbox" id="mkrepo">
-        Repo existiert noch nicht – privat neu anlegen
-      </label>
-      <div class="ghstat" id="ghstat"></div>
     </div>
+
+    <label for="repo">GITHUB-REPO <span class="req">· Pflicht</span></label>
+    <select id="repo"></select>
+    <input id="reponew" placeholder="repo-name – wird privat angelegt" hidden>
+
+    <label for="planeproj">PLANE-PROJEKT</label>
+    <select id="planeproj"></select>
+
+    <label for="coolifyapp">COOLIFY-ANWENDUNG</label>
+    <select id="coolifyapp"></select>
+
+    <div class="ghstat" id="ghstat"></div>
 
     <label for="brief">BRIEFING</label>
     <textarea id="brief" placeholder="Was ist das Projekt, für wen, was soll es erreichen – und was soll das Board besonders prüfen?"></textarea>
@@ -252,8 +257,11 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{
 </div>
 
 <script>
-const state = { agents:{}, phases:[], msgs:{}, projects:[] };
+const state = { agents:{}, phases:[], msgs:{}, projects:[],
+                repos:[], planeProjects:[], coolifyApps:[], planeError:"" };
 const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 marked.setOptions({ breaks:true });
 
 function md(text){
@@ -299,15 +307,50 @@ async function boot(){
 
   if (data.running) $("start").style.display = "none";
   connect();
-  loadProjects();
-  if (data.github) loadGithub();
-  else setGh("Kein GitHub-Token hinterlegt – trag ihn unter /settings ein (Abschnitt GitHub).", true);
+  await Promise.all([loadGithub(), loadPlane(), loadCoolify()]);
+  await loadProjects();
 }
 
-/* ---------------- Projekte + GitHub ---------------- */
+/* ---------------- Projekt und seine Verknüpfungen ---------------- */
+const NEU = "__NEU__";   // Sentinel für "neu anlegen" in den Dropdowns
+
 function setGh(text, bad){
   $("ghstat").textContent = text;
   $("ghstat").className = "ghstat" + (bad ? " bad" : "");
+}
+
+function fillSelect(el, items, current, leer, neu){
+  const options = [`<option value="">${esc(leer)}</option>`]
+    .concat(items.map(i =>
+      `<option value="${esc(i.value)}"${i.value === current ? " selected" : ""}>${esc(i.label)}</option>`));
+  if (neu) options.push(`<option value="${NEU}">＋ ${esc(neu)}</option>`);
+  el.innerHTML = options.join("");
+  el.value = items.some(i => i.value === current) ? current : "";
+}
+
+async function loadGithub(){
+  const res = await fetch("/api/github");
+  if (!res.ok) return;
+  const gh = await res.json();
+  state.repos = gh.repos || [];
+  if (gh.error){ setGh(gh.error, true); return; }
+  setGh(gh.note
+    ? `GitHub: ${gh.login} · ${gh.note}`
+    : `GitHub: ${gh.login} · ${state.repos.length} Repos sichtbar`, !!gh.note);
+}
+
+async function loadPlane(){
+  const res = await fetch("/api/plane/projects");
+  if (!res.ok) return;
+  const data = await res.json();
+  state.planeProjects = data.projects || [];
+  state.planeError = data.error || "";
+}
+
+async function loadCoolify(){
+  const res = await fetch("/api/coolify/applications");
+  const data = await res.json().catch(() => ({}));
+  state.coolifyApps = data.applications || [];
 }
 
 async function loadProjects(){
@@ -315,36 +358,61 @@ async function loadProjects(){
   if (!res.ok) return;
   state.projects = (await res.json()).projects;
   $("project").innerHTML =
-    state.projects.map(p => `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.repo_full_name || "—")}</option>`).join("")
+    state.projects.map(p =>
+      `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.repo_full_name || "—")}</option>`).join("")
     + '<option value="">＋ Neues Projekt</option>';
-  // Ohne Projekte gibt es nur den Neu-Fall.
   if (!state.projects.length) $("project").value = "";
   syncProjectForm();
 }
 
-async function loadGithub(){
-  const res = await fetch("/api/github");
-  if (!res.ok) return;
-  const gh = await res.json();
-  if (gh.error){ setGh(gh.error, true); return; }
-  setGh(gh.note
-    ? `Angemeldet als ${gh.login} · ${gh.note}`
-    : `Angemeldet als ${gh.login} · ${gh.repos.length} Repos sichtbar`,
-    !!gh.note);
-  $("repolist").innerHTML = gh.repos
-    .map(r => `<option value="${esc(r.full_name)}"></option>`).join("");
-}
-
 function syncProjectForm(){
-  const id = $("project").value;
-  $("newproject").hidden = !!id;
-  const p = state.projects.find(x => x.id === id);
+  const p = state.projects.find(x => x.id === $("project").value);
+  const neu = !p;
+
+  $("pname-wrap").hidden = !neu;
   $("brief").value = p ? p.briefing : "";
   $("brief").placeholder = p
     ? "Optional: worauf soll das Board diesmal besonders schauen?"
     : "Was ist das Projekt, für wen, was soll es erreichen – und was soll das Board besonders prüfen?";
+
+  // Das Repo ist der Anker des Projekts und wird nachträglich nicht getauscht.
+  fillSelect($("repo"), state.repos.map(r => ({value:r.full_name, label:r.full_name})),
+             p ? p.repo_full_name : "", "– Repo wählen –", neu ? "Neues Repo anlegen" : "");
+  if (p) $("repo").innerHTML =
+    `<option value="${esc(p.repo_full_name)}">${esc(p.repo_full_name)}</option>`;
+  $("repo").disabled = !neu;
+  $("reponew").hidden = true;
+
+  fillSelect($("planeproj"),
+             state.planeProjects.map(x => ({value:x.id, label:`${x.name} (${x.identifier})`})),
+             p ? p.plane_project_id : "",
+             state.planeError ? state.planeError : "– kein Plane-Projekt –",
+             "Neues Plane-Projekt anlegen");
+  fillSelect($("coolifyapp"),
+             state.coolifyApps.map(a => ({value:a.uuid, label:a.name + (a.fqdn ? ` · ${a.fqdn}` : "")})),
+             p ? p.coolify_app_uuid : "", "– keine Coolify-Anwendung –", "");
 }
+
 $("project").onchange = syncProjectForm;
+$("repo").onchange = () => {
+  $("reponew").hidden = $("repo").value !== NEU;
+  if (!$("reponew").hidden) $("reponew").focus();
+};
+
+// Bei einem bestehenden Projekt wirken Plane und Coolify sofort.
+async function linkExisting(feld, wert){
+  const id = $("project").value;
+  if (!id || wert === NEU) return;
+  try{
+    const data = await post("/api/projects/" + encodeURIComponent(id),
+                            { [feld]: wert }, "PUT");
+    const i = state.projects.findIndex(p => p.id === id);
+    if (i >= 0) state.projects[i] = data.project;
+    setGh("Verknüpfung gespeichert.");
+  }catch(err){ setGh(err.message, true); }
+}
+$("planeproj").addEventListener("change", e => linkExisting("plane_project_id", e.target.value));
+$("coolifyapp").addEventListener("change", e => linkExisting("coolify_app_uuid", e.target.value));
 
 /* ---------------- WebSocket ---------------- */
 let ws, sendQueue = [];
@@ -457,9 +525,6 @@ $("input").addEventListener("keydown", e => {
 });
 
 /* ---------------- Preflight: wer antwortet überhaupt? ---------------- */
-const esc = s => String(s ?? "").replace(/[&<>"]/g,
-  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-
 $("probe").onclick = async () => {
   $("probe").disabled = true;
   $("check").innerHTML = '<div class="ok">Prüfe Modelle …</div>';
@@ -487,9 +552,9 @@ $("probe").onclick = async () => {
 };
 
 /* ---------------- Meeting starten ---------------- */
-async function post(url, body){
+async function post(url, body, method){
   const res = await fetch(url, {
-    method:"POST", headers:{"Content-Type":"application/json"},
+    method: method || "POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify(body)
   });
   if (res.status === 401){ location.reload(); throw new Error("Session abgelaufen"); }
@@ -504,16 +569,21 @@ $("go").onclick = async () => {
   try{
     let projectId = $("project").value;
     if (!projectId){
-      // Neues Projekt: erst das Repo klären, dann das Meeting.
+      // Neues Projekt: erst Repo, Plane und Coolify klären, dann das Meeting.
+      const neuesRepo = $("repo").value === NEU;
       const created = await post("/api/projects", {
         name: $("pname").value,
         briefing: $("brief").value,
-        repo_full_name: $("repo").value.trim(),
-        create_repo: $("mkrepo").checked
+        repo_full_name: neuesRepo ? $("reponew").value.trim() : $("repo").value,
+        create_repo: neuesRepo,
+        plane_project_id: $("planeproj").value === NEU ? "" : $("planeproj").value,
+        create_plane_project: $("planeproj").value === NEU,
+        coolify_app_uuid: $("coolifyapp").value
       });
       projectId = created.project.id;
       await loadProjects();
       $("project").value = projectId;
+      syncProjectForm();
     }
     await post("/api/start", { project_id: projectId,
                                briefing: $("brief").value });

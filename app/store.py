@@ -21,12 +21,14 @@ DB_PATH = env("BOARDROOM_DB", "data/boardroom.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
-    id             TEXT PRIMARY KEY,
-    name           TEXT NOT NULL,
-    briefing       TEXT NOT NULL DEFAULT '',
-    repo_full_name TEXT NOT NULL DEFAULT '',
-    repo_url       TEXT NOT NULL DEFAULT '',
-    created_at     REAL NOT NULL
+    id               TEXT PRIMARY KEY,
+    name             TEXT NOT NULL,
+    briefing         TEXT NOT NULL DEFAULT '',
+    repo_full_name   TEXT NOT NULL DEFAULT '',
+    repo_url         TEXT NOT NULL DEFAULT '',
+    plane_project_id TEXT NOT NULL DEFAULT '',
+    coolify_app_uuid TEXT NOT NULL DEFAULT '',
+    created_at       REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS meetings (
     id         TEXT PRIMARY KEY,
@@ -63,7 +65,26 @@ CREATE INDEX IF NOT EXISTS idx_meetings_project ON meetings(project_id, started_
 CREATE INDEX IF NOT EXISTS idx_events_meeting ON events(meeting_id, seq);
 """
 
+# Spalten, die nach dem ersten Release dazukamen. CREATE TABLE IF NOT EXISTS
+# ändert eine vorhandene Tabelle nicht – laufende Deployments brauchen also
+# ein ALTER TABLE, sonst startet die App nach einem Update nicht mehr.
+MIGRATIONS = [
+    ("projects", "plane_project_id", "TEXT NOT NULL DEFAULT ''"),
+    ("projects", "coolify_app_uuid", "TEXT NOT NULL DEFAULT ''"),
+]
+
 _conn: sqlite3.Connection | None = None
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, definition in MIGRATIONS:
+        existing = {row["name"] for row in
+                    conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if not existing:          # Tabelle gibt es (noch) nicht
+            continue
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    conn.commit()
 
 
 def _connect() -> sqlite3.Connection:
@@ -81,6 +102,7 @@ def _connect() -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
     conn.commit()
+    _migrate(conn)
     _conn = conn
     return conn
 
@@ -100,23 +122,40 @@ def reset_for_tests(path: str) -> None:
 
 
 # ---------------------------------------------------------------- Projekte
-def _create_project(name: str, briefing: str, repo_full_name: str,
-                    repo_url: str) -> dict:
+PROJECT_LINKS = ("repo_full_name", "repo_url", "plane_project_id",
+                 "coolify_app_uuid")
+
+
+def _create_project(name: str, briefing: str, **links) -> dict:
     project = {
         "id": uuid.uuid4().hex[:12],
         "name": name.strip()[:200],
         "briefing": briefing.strip(),
-        "repo_full_name": repo_full_name.strip(),
-        "repo_url": repo_url.strip(),
         "created_at": time.time(),
+        **{key: str(links.get(key) or "").strip() for key in PROJECT_LINKS},
     }
     conn = _connect()
+    columns = ["id", "name", "briefing", *PROJECT_LINKS, "created_at"]
     conn.execute(
-        "INSERT INTO projects (id, name, briefing, repo_full_name, repo_url,"
-        " created_at) VALUES (:id, :name, :briefing, :repo_full_name,"
-        " :repo_url, :created_at)", project)
+        f"INSERT INTO projects ({', '.join(columns)})"
+        f" VALUES ({', '.join(':' + c for c in columns)})", project)
     conn.commit()
     return project
+
+
+def _update_project(project_id: str, fields: dict) -> bool:
+    """Verknüpfungen und Briefing nachträglich ändern – ein Projekt bekommt
+    sein Plane-Projekt oder seine Coolify-App oft erst später."""
+    updates = {k: str(v or "").strip() for k, v in fields.items()
+               if k in PROJECT_LINKS + ("name", "briefing")}
+    if not updates:
+        return False
+    conn = _connect()
+    assignments = ", ".join(f"{k} = :{k}" for k in updates)
+    cursor = conn.execute(f"UPDATE projects SET {assignments} WHERE id = :id",
+                          {**updates, "id": project_id})
+    conn.commit()
+    return cursor.rowcount > 0
 
 
 def _list_projects() -> list[dict]:
@@ -188,10 +227,12 @@ def _load_events(meeting_id: str, limit: int = 2000) -> list[dict]:
 
 
 # ---------------------------------------------------------------- Async-Fassade
-async def create_project(name: str, briefing: str, repo_full_name: str,
-                         repo_url: str) -> dict:
-    return await asyncio.to_thread(
-        _create_project, name, briefing, repo_full_name, repo_url)
+async def create_project(name: str, briefing: str, **links) -> dict:
+    return await asyncio.to_thread(_create_project, name, briefing, **links)
+
+
+async def update_project(project_id: str, fields: dict) -> bool:
+    return await asyncio.to_thread(_update_project, project_id, fields)
 
 
 async def list_projects() -> list[dict]:
