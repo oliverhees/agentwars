@@ -135,6 +135,8 @@ Ohne Plane-Konfiguration läuft alles trotzdem – der Sync wird dann einfach ü
 4. Domain zuweisen – **HTTPS aktivieren** (WebSockets laufen dann automatisch über WSS)
 5. Deploy
 
+> **Kein Host-Port.** Die `docker-compose.yml` nutzt `expose` statt `ports` – Coolify routet über Traefik intern auf Port 8000. Ein Host-Mapping würde mit allem kollidieren, was auf dem Server schon auf 8000 läuft (`Bind for 0.0.0.0:8000 failed: port is already allocated`). Lokal veröffentlicht die `docker-compose.override.yml` den Port; Coolify lädt Overrides nicht, weil es die Compose-Datei ausdrücklich mit `-f` angibt.
+
 > `BOARDROOM_PASSWORD` und `BOARDROOM_SECRET` gehören in Coolify als **geheime** Environment Variables, nicht ins Repo. Gleiches gilt für `CLAUDE_CODE_OAUTH_TOKEN` – der Token gewährt vollen Zugriff auf deine Subscription.
 
 ## Tests

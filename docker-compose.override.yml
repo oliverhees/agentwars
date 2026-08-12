@@ -1,0 +1,10 @@
+# Nur für lokal. `docker compose up` liest diese Datei automatisch dazu und
+# veröffentlicht den Port auf deinem Rechner.
+#
+# Coolify startet mit einem ausdrücklichen `-f docker-compose.yml` und lädt
+# Overrides deshalb NICHT – auf dem Server bleibt der Port unveröffentlicht,
+# genau so soll es sein.
+services:
+  boardroom:
+    ports:
+      - "8000:8000"
