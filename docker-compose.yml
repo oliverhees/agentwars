@@ -7,6 +7,12 @@ services:
     expose:
       - "8000"
     env_file: .env
+    environment:
+      # Coolify-Magie: sagt Traefik ausdrücklich, dass die Domain dieses
+      # Dienstes auf Port 8000 routet. Ohne das muss Coolify den Port raten
+      # und die Domain landet auf der Fallback-Seite. Der Wert kommt von
+      # Coolify selbst – hier steht bewusst nur der Name.
+      - SERVICE_FQDN_BOARDROOM_8000
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]

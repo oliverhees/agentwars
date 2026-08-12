@@ -137,6 +137,15 @@ Ohne Plane-Konfiguration läuft alles trotzdem – der Sync wird dann einfach ü
 
 > **Kein Host-Port.** Die `docker-compose.yml` nutzt `expose` statt `ports` – Coolify routet über Traefik intern auf Port 8000. Ein Host-Mapping würde mit allem kollidieren, was auf dem Server schon auf 8000 läuft (`Bind for 0.0.0.0:8000 failed: port is already allocated`). Lokal veröffentlicht die `docker-compose.override.yml` den Port; Coolify lädt Overrides nicht, weil es die Compose-Datei ausdrücklich mit `-f` angibt.
 
+### Landet die Domain auf Coolifys Fallback-Seite?
+
+Dann läuft der Container, aber Traefik hat keinen passenden Router – ein reines Routing-Problem, kein App-Fehler. Zwei Stellen:
+
+1. **Die Domain muss am Service `boardroom` hängen**, nicht an der Ressource allgemein. In Coolify: Ressource → Tab **Domains** → Zeile `boardroom`.
+2. **Der Port gehört in die Domain:** `https://board.deine-domain.de:8000`. Ohne den Port-Suffix muss Coolify raten. Die `SERVICE_FQDN_BOARDROOM_8000`-Variable in der Compose-Datei sagt es zusätzlich ausdrücklich.
+
+Prüfen lässt sich das ohne Domain: In Coolify das Terminal der Ressource öffnen und `curl -fsS http://127.0.0.1:8000/healthz` laufen lassen. Kommt `{"ok":true,…}`, ist die App gesund und es ist definitiv Traefik.
+
 > `BOARDROOM_PASSWORD` und `BOARDROOM_SECRET` gehören in Coolify als **geheime** Environment Variables, nicht ins Repo. Gleiches gilt für `CLAUDE_CODE_OAUTH_TOKEN` – der Token gewährt vollen Zugriff auf deine Subscription.
 
 ## Tests
